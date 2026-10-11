@@ -1158,6 +1158,46 @@ describe("url-reference JavaScript artifact path resolution", () => {
       resolved_path: null,
     });
   });
+
+  it.each([
+    ["app%20part.js.map", "dist/app part.js.map"],
+    ["app%25part.js.map", "dist/app%part.js.map"],
+    ["app%2520part.js.map", "dist/app%20part.js.map"],
+    ["app%20part.js.map?v=1#section", "dist/app part.js.map"],
+  ])("percent-decodes local path %s exactly once", (declaredPath, expected) => {
+    const files = fileMap([
+      file("dist/app.js", "root"),
+      file("dist/app part.js.map", "root"),
+      file("dist/app%part.js.map", "root"),
+      file("dist/app%20part.js.map", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath,
+        sourcePath: "dist/app.js",
+        context: "url-reference",
+        files,
+      }),
+    ).toMatchObject({
+      declared_path: declaredPath,
+      resolution_status: "resolved",
+      resolved_path: expected,
+    });
+  });
+
+  it.each(["app%00.js.map", "app%FF.js.map", "%2e%2e/app.js.map"])(
+    "rejects local path %s that cannot name a canonical file",
+    (declaredPath) => {
+      expect(
+        resolve({
+          declaredPath,
+          sourcePath: "dist/app.js",
+          context: "url-reference",
+          files: fileMap([file("dist/app.js", "root")]),
+        }),
+      ).toMatchObject({ resolution_status: "rejected", resolved_path: null });
+    },
+  );
 });
 
 const resolve = (input: ResolveArtifactPathInput) =>

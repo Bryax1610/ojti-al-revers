@@ -221,3 +221,38 @@ it("resolves a bare source-map file name and worker URL next to the script", asy
     resolved_path: "dist/sw.js",
   });
 });
+
+it("resolves a percent-encoded source-map URL to the decoded local file", async () => {
+  const root = await createTestTempDirectory("rea-source-map-encoded-");
+  const declaredUrl = "app%20part.js.map?v=1#section";
+  await writeFile(
+    join(root, "app.js"),
+    `export const value = 1;\n//# sourceMappingURL=${declaredUrl}\n`,
+  );
+  await writeFile(
+    join(root, "app part.js.map"),
+    JSON.stringify({ version: 3, sources: [], names: [], mappings: "" }),
+  );
+  const result = await reconstructJavaScriptArtifact({ input_path: root });
+  const nodes = new Map(result.graph.nodes.map((node) => [node.node_id, node]));
+  const mapEdge = result.graph.edges.find(
+    ({ relation, target_node_id }) =>
+      relation === "maps_to" &&
+      nodes.get(target_node_id)?.kind === "source-map",
+  );
+  expect(mapEdge?.properties).toEqual({
+    declared_url_sha256: createHash("sha256").update(declaredUrl).digest("hex"),
+    resolved_path: "app part.js.map",
+  });
+  expect(
+    nodes
+      .get(mapEdge?.target_node_id ?? "")
+      ?.observations.map(({ properties }) => properties),
+  ).toContainEqual(
+    expect.objectContaining({
+      declared_url: declaredUrl,
+      resolved_path: "app part.js.map",
+      available: true,
+    }),
+  );
+});
