@@ -18,6 +18,11 @@ import {
   ghidraMipsUnsupportedReason,
 } from "./GhidraMipsProfile.js";
 import {
+  ghidraPowerPcLanguage,
+  ghidraPowerPcProfileParameters,
+  ghidraPowerPcUnsupportedReason,
+} from "./GhidraPowerPcProfile.js";
+import {
   NATIVE_AOT_MAX_REPORT_BYTES,
   NATIVE_AOT_MAX_SOURCE_BYTES,
   NATIVE_AOT_MAX_WORKING_MEMORY_BYTES,
@@ -41,17 +46,22 @@ export const resolveGhidraAnalysisProfile = (
     return Promise.resolve(
       err(new ProviderAdapterError(identity.id, "resolve_analysis_profile")),
     );
-  const mipsReason = ghidraMipsUnsupportedReason(target);
-  if (mipsReason !== null)
+  const laneReason =
+    ghidraMipsUnsupportedReason(target) ??
+    ghidraPowerPcUnsupportedReason(target);
+  if (laneReason !== null)
     return Promise.resolve(
       err(
         new AnalysisUnsupportedTargetError(
           "resolve_analysis_profile",
           target.path,
-          mipsReason,
+          laneReason,
         ),
       ),
     );
+  // A configured language still wins; otherwise the lane's bound language.
+  const laneLanguage =
+    languageOverride === undefined ? ghidraPowerPcLanguage(target) : undefined;
   const provider = { ...identity, version: installation.providerVersion };
   const dosMz = target.format === "dos-mz";
   const dosCom = target.format === "dos-com";
@@ -122,15 +132,19 @@ export const resolveGhidraAnalysisProfile = (
             : "auto-from-header",
         language_id: dos
           ? "x86:LE:16:Real Mode"
-          : (languageOverride?.languageId ?? "auto-from-header"),
+          : (languageOverride?.languageId ??
+            laneLanguage?.languageId ??
+            "auto-from-header"),
         compiler_spec_id: dos
           ? "default"
-          : languageOverride === undefined
-            ? "auto-default"
-            : (languageOverride.compilerSpecId ?? "language-default"),
-        ...(languageOverride === undefined
-          ? {}
-          : { language_selection: "configured-v1" }),
+          : languageOverride !== undefined
+            ? (languageOverride.compilerSpecId ?? "language-default")
+            : (laneLanguage?.compilerSpecId ?? "auto-default"),
+        ...(languageOverride !== undefined
+          ? { language_selection: "configured-v1" }
+          : laneLanguage !== undefined
+            ? { language_selection: "admitted-lane-v1" }
+            : {}),
         ...(dos
           ? {
               load_segment: "0x1000",
@@ -151,6 +165,7 @@ export const resolveGhidraAnalysisProfile = (
           : {}),
         analyzer_preset: "ghidra-default",
         ...ghidraMipsProfileParameters(target),
+        ...ghidraPowerPcProfileParameters(target),
       }),
     }),
   );
@@ -168,6 +183,18 @@ export const ghidraProfileLanguageOverride = (
   return compilerSpecId === "language-default"
     ? { languageId }
     : { languageId, compilerSpecId };
+};
+
+/** Read a lane-bound import language back from a resolved profile. */
+export const ghidraProfileLaneLanguage = (
+  parameters: Readonly<Record<string, unknown>>,
+): GhidraLanguageOverride | undefined => {
+  if (parameters.language_selection !== "admitted-lane-v1") return undefined;
+  const languageId = parameters.language_id;
+  const compilerSpecId = parameters.compiler_spec_id;
+  if (typeof languageId !== "string" || typeof compilerSpecId !== "string")
+    return undefined;
+  return { languageId, compilerSpecId };
 };
 
 /** Whether a committed profile and the active configuration select the same language. */

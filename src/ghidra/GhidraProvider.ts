@@ -38,6 +38,7 @@ import {
   readGhidraLanguageCatalog,
 } from "./GhidraLanguageCatalog.js";
 import { ghidraMipsUnsupportedReason } from "./GhidraMipsProfile.js";
+import { ghidraPowerPcUnsupportedReason } from "./GhidraPowerPcProfile.js";
 import { resolveGhidraExtensions } from "./extensions/GhidraExtensions.js";
 import {
   CAPABILITIES,
@@ -61,6 +62,7 @@ const SUPPORTED_ARCHITECTURES = new Set([
   "arm",
   "arm64",
   "mips",
+  "powerpc",
 ]);
 
 /** Ghidra candidate backed by an isolated ephemeral headless import. */
@@ -149,12 +151,14 @@ export class GhidraProvider implements AnalysisProviderCandidate {
       };
     if (hostPlatform === "win32")
       return inspectWindowsP0TargetSupport(target, diagnostics);
-    const mipsReason = ghidraMipsUnsupportedReason(target);
-    if (mipsReason !== null)
+    const laneReason =
+      ghidraMipsUnsupportedReason(target) ??
+      ghidraPowerPcUnsupportedReason(target);
+    if (laneReason !== null)
       return {
         status: "unsupported",
         code: "architecture_unsupported",
-        reason: mipsReason,
+        reason: laneReason,
         diagnostics,
       };
     if (target.format === "mach-o" && target.availableArchitectures.length > 1)
@@ -170,7 +174,7 @@ export class GhidraProvider implements AnalysisProviderCandidate {
         status: "unsupported",
         code: "architecture_unsupported",
         reason:
-          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, or MIPS target profile.",
+          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, MIPS, or PowerPC target profile.",
         diagnostics,
       };
     return {

@@ -5,6 +5,7 @@ export const BINARY_ARCHITECTURES = [
   "arm",
   "arm64",
   "mips",
+  "powerpc",
 ] as const;
 export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
 
@@ -19,6 +20,17 @@ export interface MipsElfMetadata {
   /** Unavailable declaration sources; missing records there remain unknown. */
   readonly limitations?: readonly string[];
 }
+
+/** Raw PowerPC ELF header facts; recognition does not select a processor variant. */
+export interface PowerPcElfMetadata {
+  readonly elfClass: 32 | 64;
+  readonly byteOrder: "little" | "big";
+  readonly type: number;
+  readonly flags: number;
+}
+
+/** Families whose ELF header facts travel with the target for lane admission. */
+export type ElfHeaderArchitecture = "mips" | "powerpc";
 
 /** Declared fields of the 24-byte MIPS ABI flags record, not inferred semantics. */
 export interface MipsAbiFlags {
@@ -52,10 +64,10 @@ type NonExecutableMetadata = {
 
 type ExecutableTarget = BinaryTargetIdentity & {
   readonly kind: "executable";
-  readonly architecture: Exclude<BinaryArchitecture, "mips">;
+  readonly architecture: Exclude<BinaryArchitecture, ElfHeaderArchitecture>;
   readonly availableArchitectures: readonly Exclude<
     BinaryArchitecture,
-    "mips"
+    ElfHeaderArchitecture
   >[];
 };
 
@@ -70,6 +82,17 @@ export type BinaryTarget =
       readonly architecture: "mips";
       readonly availableArchitectures: readonly "mips"[];
       readonly mips: MipsElfMetadata;
+      readonly powerpc?: never;
+      readonly executableRole?: never;
+      readonly managed?: never;
+    })
+  | (BinaryTargetIdentity & {
+      readonly kind: "executable";
+      readonly format: "elf";
+      readonly architecture: "powerpc";
+      readonly availableArchitectures: readonly "powerpc"[];
+      readonly powerpc: PowerPcElfMetadata;
+      readonly mips?: never;
       readonly executableRole?: never;
       readonly managed?: never;
     })

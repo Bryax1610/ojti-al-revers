@@ -109,6 +109,14 @@ export class IdaProvider implements AnalysisProviderCandidate {
           "REA's IDA adapter has no verified MIPS lane. Select a supported Ghidra profile instead.",
         diagnostics,
       };
+    if (target.kind === "executable" && target.architecture === "powerpc")
+      return {
+        status: "unsupported",
+        code: "architecture_unsupported",
+        reason:
+          "REA's IDA adapter has no verified PowerPC lane. Select a supported Ghidra profile instead.",
+        diagnostics,
+      };
     return target.kind === "executable"
       ? { status: "supported", code: null, reason: null, diagnostics }
       : {

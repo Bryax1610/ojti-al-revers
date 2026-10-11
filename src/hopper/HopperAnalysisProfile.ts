@@ -7,7 +7,10 @@ import type {
 } from "../application/AnalysisProvider.js";
 import { createAnalysisProfile } from "../domain/analysisProfile.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
-import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
+import type {
+  BinaryArchitecture,
+  ElfHeaderArchitecture,
+} from "../domain/binaryTargetTypes.js";
 import {
   AnalysisCancelledError,
   AnalysisCapabilityUnavailableError,
@@ -118,6 +121,14 @@ export const hopperLoaderArgsForTarget = (
         "REA's Hopper adapter does not admit MIPS targets. Select a verified Ghidra MIPS profile instead.",
       ),
     );
+  if (architecture === "powerpc")
+    return err(
+      new AnalysisCapabilityUnavailableError(
+        "hopper",
+        "resolve_analysis_profile",
+        "REA's Hopper adapter does not admit PowerPC targets. Select a verified Ghidra PowerPC profile instead.",
+      ),
+    );
   const flag = hopperArchitectureFlag(architecture);
   switch (target.format) {
     case "mach-o":
@@ -147,7 +158,7 @@ export const hopperLoaderArgsForTarget = (
 };
 
 const hopperArchitectureFlag = (
-  architecture: Exclude<BinaryArchitecture, "mips">,
+  architecture: Exclude<BinaryArchitecture, ElfHeaderArchitecture>,
 ): string => {
   switch (architecture) {
     case "x86":

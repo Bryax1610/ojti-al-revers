@@ -15,6 +15,7 @@ import {
 } from "./GhidraAnalysisSeeds.js";
 import {
   ghidraProfileLanguageOverride,
+  ghidraProfileLaneLanguage,
   sameGhidraLanguageOverride,
 } from "./GhidraAnalysisProfile.js";
 import type { AnalysisProfileCommitment } from "../domain/analysisProfile.js";
@@ -386,11 +387,14 @@ export const createGhidraProviderClient = (input: {
       }),
     );
   const seeds = seedProfile.data;
-  const languageOverride = ghidraProfileLanguageOverride(
+  const configuredLanguage = ghidraProfileLanguageOverride(
     committedProfile.parameters,
   );
   if (
-    !sameGhidraLanguageOverride(languageOverride, config.ghidraLanguageOverride)
+    !sameGhidraLanguageOverride(
+      configuredLanguage,
+      config.ghidraLanguageOverride,
+    )
   )
     return unavailableClient(
       new ProviderAdapterError("ghidra", "open_binary", {
@@ -400,6 +404,9 @@ export const createGhidraProviderClient = (input: {
         },
       }),
     );
+  const languageOverride =
+    configuredLanguage ??
+    ghidraProfileLaneLanguage(committedProfile.parameters);
   const invalidProfile = validateGhidraExtensionProfile(
     extensions,
     config,

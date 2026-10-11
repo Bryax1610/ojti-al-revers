@@ -55,6 +55,7 @@ export default defineConfig({
           { text: "Ghidra on Windows", link: "/windows-ghidra-p0" },
           { text: "Ghidra DOS analysis", link: "/ghidra-dos" },
           { text: "Ghidra NativeAOT", link: "/ghidra-nativeaot" },
+          { text: "Ghidra PowerPC", link: "/ghidra-ppc" },
           { text: "Ghidra semantics", link: "/ghidra-provider" },
         ],
       },

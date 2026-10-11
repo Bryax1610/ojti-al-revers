@@ -1,6 +1,8 @@
 import type {
   BinaryArchitecture,
+  ElfHeaderArchitecture,
   MipsElfMetadata,
+  PowerPcElfMetadata,
 } from "./binaryTargetTypes.js";
 import { err, ok, type Result } from "./result.js";
 import { mzWindowsHeaderOffset, parseDosMzHeader } from "./dosMz.js";
@@ -14,19 +16,25 @@ export type ExecutableMetadata =
       readonly mips: MipsElfMetadata;
     }
   | {
+      readonly format: "elf";
+      readonly architecture: "powerpc";
+      readonly availableArchitectures: readonly "powerpc"[];
+      readonly powerpc: PowerPcElfMetadata;
+    }
+  | {
       readonly format: "mach-o" | "elf" | "dos-mz" | "dos-com";
-      readonly architecture: Exclude<BinaryArchitecture, "mips">;
+      readonly architecture: Exclude<BinaryArchitecture, ElfHeaderArchitecture>;
       readonly availableArchitectures: readonly Exclude<
         BinaryArchitecture,
-        "mips"
+        ElfHeaderArchitecture
       >[];
     }
   | {
       readonly format: "pe";
-      readonly architecture: Exclude<BinaryArchitecture, "mips">;
+      readonly architecture: Exclude<BinaryArchitecture, ElfHeaderArchitecture>;
       readonly availableArchitectures: readonly Exclude<
         BinaryArchitecture,
-        "mips"
+        ElfHeaderArchitecture
       >[];
       readonly executableRole:
         | "application"
@@ -103,7 +111,8 @@ const parseFatMachO = (
   const entrySize = is64 ? 32 : 20;
   if (count === 0 || count > 128 || bytes.length < 8 + count * entrySize)
     return err("truncated or invalid FAT architecture table");
-  const architectures: Exclude<BinaryArchitecture, "mips">[] = [];
+  const architectures: Exclude<BinaryArchitecture, ElfHeaderArchitecture>[] =
+    [];
   const sliceEnds = new Map<BinaryArchitecture, bigint>();
   for (let index = 0; index < count; index += 1) {
     const entry = 8 + index * entrySize;
@@ -163,19 +172,27 @@ const parseElf = (
   const machine = little ? bytes.readUInt16LE(18) : bytes.readUInt16BE(18);
   const architecture = elfArchitecture(machine);
   if (architecture === undefined) return err("unsupported ELF architecture");
+  const header = {
+    elfClass: bytes[4] === 1 ? 32 : 64,
+    byteOrder: little ? "little" : "big",
+    type: little ? bytes.readUInt16LE(16) : bytes.readUInt16BE(16),
+    flags: little
+      ? bytes.readUInt32LE(bytes[4] === 1 ? 36 : 48)
+      : bytes.readUInt32BE(bytes[4] === 1 ? 36 : 48),
+  } as const;
   if (architecture === "mips")
     return ok({
       format: "elf",
       architecture,
       availableArchitectures: [architecture],
-      mips: {
-        elfClass: bytes[4] === 1 ? 32 : 64,
-        byteOrder: little ? "little" : "big",
-        type: little ? bytes.readUInt16LE(16) : bytes.readUInt16BE(16),
-        flags: little
-          ? bytes.readUInt32LE(bytes[4] === 1 ? 36 : 48)
-          : bytes.readUInt32BE(bytes[4] === 1 ? 36 : 48),
-      },
+      mips: header,
+    });
+  if (architecture === "powerpc")
+    return ok({
+      format: "elf",
+      architecture,
+      availableArchitectures: [architecture],
+      powerpc: header,
     });
   return ok({
     format: "elf",
@@ -270,7 +287,7 @@ const peManagedStatus = (
 
 const machArchitecture = (
   cpu: number,
-): Exclude<BinaryArchitecture, "mips"> | undefined => {
+): Exclude<BinaryArchitecture, ElfHeaderArchitecture> | undefined => {
   switch (cpu) {
     case 7:
       return "x86";
@@ -292,6 +309,8 @@ const elfArchitecture = (machine: number): BinaryArchitecture | undefined => {
       return "x86_64";
     case 8: // EM_MIPS: ISA, ABI and byte order remain separate ELF facts.
       return "mips";
+    case 20: // EM_PPC: 32-bit PowerPC; byte order and variant stay ELF facts.
+      return "powerpc";
     case 40:
       return "arm";
     case 183:
@@ -302,7 +321,7 @@ const elfArchitecture = (machine: number): BinaryArchitecture | undefined => {
 
 const peArchitecture = (
   machine: number,
-): Exclude<BinaryArchitecture, "mips"> | undefined => {
+): Exclude<BinaryArchitecture, ElfHeaderArchitecture> | undefined => {
   switch (machine) {
     case 0x14c:
       return "x86";
