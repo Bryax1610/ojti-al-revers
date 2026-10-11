@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { access, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,14 +9,33 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parseEvidence } from "../../../dist/domain/evidence.js";
-import { hashAndroidFile } from "../../../dist/android/AndroidTargetSnapshot.js";
 import { JADX_RELEASE } from "../../../dist/android/JadxRelease.js";
 import fixture from "../../fixtures/android/apidemos.json" with { type: "json" };
 import { verifyAndroidCliCancellation } from "./cli-cancellation.mjs";
 import { verifyAndroidMetadata } from "./metadata.mjs";
 import { verifyAndroidFailureRecovery } from "./failure-recovery.mjs";
-import { resolveJadxConfiguration } from "../../../dist/android/JadxConfiguration.js";
+import {
+  resolveJadxConfigurationInputs,
+  validateJadxConfiguration,
+} from "../../../dist/android/JadxConfiguration.js";
 import { verifyWindowsAndroidLifecycle } from "./windows-lifecycle.mjs";
+
+/** Stream a local file digest without retaining the APK or JAR in memory. */
+const hashAndroidFile = async (path) => {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+};
+
+/** Resolve and validate the JADX configuration as a new engine session does. */
+const resolveJadxConfiguration = async (environment, operation) => {
+  const configuration = await resolveJadxConfigurationInputs(
+    environment,
+    operation,
+  );
+  await validateJadxConfiguration(configuration, environment, operation);
+  return configuration;
+};
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const apk = process.env.REA_ANDROID_TEST_APK;
