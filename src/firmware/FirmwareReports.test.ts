@@ -51,6 +51,87 @@ describe("firmware producer boundaries", () => {
       range: { offset: 0, length: 20 },
       root_file_range: { offset: 64, length: 20 },
     });
+    expect(normalized.missing_dependencies).toEqual([]);
+  });
+  it("derives missing extractor dependencies from chunk and multi-file reports", () => {
+    const record = root();
+    const normalized = normalizeUnblobReport(
+      [
+        {
+          ...record,
+          reports: record.reports.filter(
+            (item) => item.__typename__ !== "UnknownChunkReport",
+          ),
+          subtasks: [
+            {
+              path: `${context.outputRoot}/rootfs`,
+              depth: 1,
+              blob_id: "sq-id",
+              is_multi_file: false,
+            },
+          ],
+        },
+        {
+          task: {
+            path: `${context.outputRoot}/rootfs`,
+            depth: 1,
+            blob_id: "sq-id",
+            is_multi_file: false,
+          },
+          reports: [
+            {
+              __typename__: "StatReport",
+              path: `${context.outputRoot}/rootfs`,
+              size: 0,
+              is_file: false,
+              is_dir: true,
+              is_link: false,
+              link_target: null,
+            },
+            {
+              __typename__: "MultiFileReport",
+              id: "sq-id",
+              handler_name: "squashfs",
+              name: "rootfs",
+              paths: [],
+              extraction_reports: [
+                {
+                  __typename__: "ExtractorDependencyNotFoundReport",
+                  severity: "ERROR",
+                  dependencies: ["sasquatch"],
+                },
+              ],
+            },
+          ],
+          subtasks: [],
+        },
+      ],
+      context,
+    );
+    expect(normalized.missing_dependencies).toEqual([
+      { input_path: "$output/rootfs", dependencies: ["sasquatch"] },
+    ]);
+  });
+  it("keeps dependency reports without dependency names out of the derivation", () => {
+    const record = root();
+    const normalized = normalizeUnblobReport(
+      [
+        {
+          ...record,
+          reports: [
+            ...record.reports,
+            {
+              __typename__: "ExtractorDependencyNotFoundReport",
+              severity: "ERROR",
+              dependencies: [],
+            },
+          ],
+        },
+      ],
+      context,
+    );
+    expect(normalized.missing_dependencies).toEqual([]);
+    expect(normalized.diagnostics).toHaveLength(1);
   });
   it("preserves unfamiliar report types as explicit diagnostics", () => {
     const record = root();
