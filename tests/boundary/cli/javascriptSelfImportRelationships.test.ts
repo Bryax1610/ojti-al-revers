@@ -75,7 +75,7 @@ cliTest(
 );
 
 cliTest(
-  "discloses CommonJS and TypeScript self-imports while retaining unresolved extension rewrites",
+  "discloses CommonJS and TypeScript self-imports including an emitted-name rewrite to the importing module",
   async ({ cli }) => {
     const root = await createTestTempDirectory("rea-self-require-");
     await writeFixtureFiles(root, {
@@ -94,8 +94,11 @@ cliTest(
     expect(
       graph.edges.filter((edge) => edge.source_node_id === edge.target_node_id),
     ).toEqual([]);
+    // ./util.ts is a literal self-import and ./util.cjs ./c.cjs is the
+    // CommonJS one; ./util.js resolves under NodeNext emitted-name semantics
+    // back to util.ts itself, so it joins the same self-import disclosure.
     expect(graph.limitations).toContainEqual(
-      expect.stringMatching(/^2 import specifiers .*were omitted;/u),
+      expect.stringMatching(/^3 import specifiers .*were omitted;/u),
     );
     expect(result.limitations).toEqual(
       expect.arrayContaining(graph.limitations),
@@ -128,12 +131,21 @@ cliTest(
       ).toBe(false);
     }
     expect(
-      graph.edges.find(
+      graph.edges.some(
         (edge) =>
-          edge.source_node_id === findSourceModule(graph, "util.ts")?.node_id &&
           edge.properties.specifier === "./util.js" &&
-          edge.properties.module_link_kind === "import",
-      )?.properties,
-    ).toMatchObject({ resolved_path: null, resolution_status: "not-found" });
+          (edge.properties.module_link_kind === "import" ||
+            edge.properties.resolution_status === "not-found"),
+      ),
+    ).toBe(false);
+    expect(
+      graph.nodes.some((node) =>
+        node.observations.some(
+          ({ properties }) =>
+            properties.semantic_role === "module-reference" &&
+            properties.declared_specifier === "./util.js",
+        ),
+      ),
+    ).toBe(false);
   },
 );

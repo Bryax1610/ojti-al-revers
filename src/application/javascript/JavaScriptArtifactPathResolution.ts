@@ -14,6 +14,7 @@ import {
   percentDecodeUrlPath,
   stripQueryAndFragment,
 } from "../../domain/artifactPathSyntax.js";
+import { typescriptEmittedSourceCandidates } from "../TypeScriptEmittedSourceCandidates.js";
 
 type ArtifactPathResolutionContext =
   | "package-entrypoint"
@@ -554,7 +555,10 @@ const resolveCandidate = (
   candidate: string,
   packageChain: ReadonlySet<string>,
 ): CandidateResolution =>
-  resolveFileCandidates(input, fileCandidates(candidate)) ??
+  resolveFileCandidates(input, [
+    ...fileCandidates(candidate),
+    ...typescriptEmittedSourceCandidates(input.sourcePath, candidate),
+  ]) ??
   resolveDirectory(
     input,
     candidate,
