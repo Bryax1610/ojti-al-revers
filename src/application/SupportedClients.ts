@@ -128,6 +128,10 @@ const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
 const grokDirectory = ({ home, env }: ClientPathContext): string =>
   env.GROK_HOME || join(home, ".grok");
 
+/** Kimi Code returns a nonempty `KIMI_CODE_HOME` as-is and falls back when it is empty. */
+const kimiCodeDirectory = ({ home, env }: ClientPathContext): string =>
+  env.KIMI_CODE_HOME || join(home, ".kimi-code");
+
 const hermesDirectory = ({ home, platform, env }: ClientPathContext): string =>
   resolveHermesClientHome(home, platform, env);
 
@@ -490,6 +494,17 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
       join(hermesDirectory(context), "config.yaml"),
     markerPath: hermesDirectory,
     format: "hermes",
+  },
+  {
+    // Kimi Code discovers personal skills in the shared `~/.agents/skills`
+    // directory, and a project `.kimi-code/mcp.json` overrides this user file,
+    // so setup manages only the user-level registration.
+    name: "kimi_code",
+    displayName: "Kimi Code",
+    configPath: (context: ClientPathContext) =>
+      join(kimiCodeDirectory(context), "mcp.json"),
+    markerPath: kimiCodeDirectory,
+    format: "json",
   },
   {
     name: "grok_bot",

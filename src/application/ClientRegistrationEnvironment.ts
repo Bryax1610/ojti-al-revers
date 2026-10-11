@@ -9,10 +9,14 @@ import {
 } from "./ClientConfigurationDocument.js";
 import { PRODUCT_IDENTITY } from "../identity.js";
 
-/** Read explicit REA overrides without dropping peers when one value is invalid. */
+/**
+ * Read explicit REA overrides without dropping peers when one value is
+ * invalid. Seeded `defaults` fill keys the existing entry does not configure.
+ */
 export const clientRegistrationEnvironment = (
   parsed: ClientConfigurationDocument | undefined,
   overrides: Readonly<Record<string, string>> = {},
+  defaults: Readonly<Record<string, string>> = {},
 ): Result<Readonly<Record<string, string>>, ConfigurationError> => {
   const key =
     parsed?.dialect === "opencode" || parsed?.dialect === "opencode_v2"
@@ -41,7 +45,9 @@ export const clientRegistrationEnvironment = (
     );
   // Validate known settings with the runtime's parser, but retain the original
   // string overrides, including unknown client-specific keys and no defaults.
-  const environment = { ...existing.data, ...overrides };
+  // Seeded registration defaults sit beneath an explicitly configured value,
+  // so an existing entry keeps whatever the caller chose.
+  const environment = { ...defaults, ...existing.data, ...overrides };
   const validated = parseEnvironment(environment);
   if (!validated.ok) return validated;
   return ok(

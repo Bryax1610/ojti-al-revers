@@ -67,6 +67,7 @@ describe("client configuration filesystem lifecycle", () => {
       "omp",
       "pi",
       "hermes",
+      "kimi_code",
       "grok_bot",
     ]);
     expect(

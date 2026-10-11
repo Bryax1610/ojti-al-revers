@@ -90,7 +90,7 @@ running server or its registration.
 The npm release checked on **2026-10-11** was **6.4.0**, published from
 [`a56f7bb6`](https://github.com/morluto/rea/commit/a56f7bb668ab23fec8d33f7af353ac7ed2fe1895).
 The actual registry package accepted dry-run setup plans for all 17 client IDs
-listed below, including Qwen Code, Pi and Hermes. OpenCode's plan selected
+of that release, including Qwen Code, Pi and Hermes. OpenCode's plan selected
 `OPENCODE_CONFIG_DIR` even when that directory did not yet exist. These checks
 used an isolated home on macOS with Node 24; they verify planning and argument
 admission, without writing client configuration or establishing live integration
@@ -162,6 +162,7 @@ listed after the table because its connector is not one of these files:
 | OMP                | `omp`            |
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
+| Kimi Code          | `kimi_code`      |
 
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
 chat with REA's full input-schema profile before sending a model request
@@ -257,6 +258,27 @@ REA follows `HERMES_HOME` whitespace trimming, environment-variable expansion,
 and home expansion before resolving that profile. Setup previews the resolved
 configuration and skill destinations; doctor and uninstall use those same paths.
 
+For Kimi Code, setup registers `rea` in the `mcpServers` table of the
+user-level `~/.kimi-code/mcp.json`, or `$KIMI_CODE_HOME/mcp.json` when that
+variable is nonempty (a nonempty value is used as-is, and an empty value
+selects the default). Setup writes only the user scope: a project's
+`.kimi-code/mcp.json`, and a project-root `.mcp.json`, can override a
+same-name user entry, so check those files when the user registration is
+aligned but unavailable in a project. Kimi Code discovers personal skills in
+`~/.agents/skills`, where setup installs the bundled workflow.
+
+A Kimi Code registration is written with
+`"REA_MCP_INPUT_SCHEMA_PROFILE": "compact"` in its `env` object. Moonshot's
+API rejects an entire model request while any single tool's input schema
+exceeds its per-schema size cap
+([#1484](https://github.com/morluto/rea/issues/1484)); against `rea-agents`
+6.4.0 the full profile put five schemas over that cap (largest 61,876 bytes,
+`compare_web_captures`), while the compact profile put none over it (largest
+12,090 bytes). An explicit profile already configured in the entry is
+preserved. Kimi Code loads MCP servers when a session starts: after setup
+changes the registration, restart the client or start a new session, where
+REA's tools appear as `mcp__rea__<tool_name>`.
+
 ### DeepSeek Harness
 
 DeepSeek Harness uses a Cordis YAML patch sequence rather than a `mcpServers`
@@ -348,7 +370,7 @@ The bundled skill is installed where each selected client discovers personal
 skills: Claude Code uses `~/.claude/skills` (or
 `$CLAUDE_CONFIG_DIR/skills` when configured). Gemini CLI uses `.agents/skills`
 under its selected home; Antigravity 2.0 uses `~/.gemini/config/skills`.
-Other integrations, including Qwen Code, use `~/.agents/skills`.
+Other integrations, including Qwen Code and Kimi Code, use `~/.agents/skills`.
 A mixed selection plans each distinct destination. Selecting the skill without a client uses the shared
 directory. Setup leaves existing skill copies in other locations untouched.
 
