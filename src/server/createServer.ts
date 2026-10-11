@@ -207,6 +207,10 @@ export const createServer = (
   const delivery = selectToolResultDelivery(environment, options.delivery);
   const evmInterface =
     options.evmInterface ?? createEvmInterfaceService(environment);
+  const binaryLayout =
+    options.binaryLayout ?? createBinaryLayoutService(environment);
+  const recordedCrash =
+    options.recordedCrash ?? createRecordedCrashService(environment);
   const webSourceLocation =
     options.webSourceLocation ?? createWebSourceLocationService(environment);
   const javascriptRecovery =
@@ -220,6 +224,8 @@ export const createServer = (
     environment,
     delivery,
     evmInterface,
+    binaryLayout,
+    recordedCrash,
     webSourceLocation,
     javascriptRecovery,
   };
@@ -246,6 +252,8 @@ export const createServer = (
       jeb.close(),
       adbDevice.close(),
       evmInterface.close(),
+      binaryLayout.close(),
+      recordedCrash.close(),
       webSourceLocation.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
       artifactResources.close(),

@@ -28,6 +28,8 @@ import { ProviderCleanupError } from "../../domain/providerCleanupError.js";
 import { err, ok, type Result } from "../../domain/result.js";
 import { runOwnedCommand } from "../../process/OwnedCommand.js";
 import { OwnedCommandFailure } from "../../process/OwnedCommand.js";
+import type { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
+import { PendingOperations } from "../../process/PendingOperations.js";
 import {
   pwntoolsResourceLimitsSchema,
   readPwntoolsFailureEvidence,
@@ -65,6 +67,7 @@ export interface PwntoolsDecoderProfile<
     readonly rootPath: string;
     readonly diagnostics: AnalysisCapturedOutput;
     readonly options: ExecutionOptions | undefined;
+    readonly retainProcessCleanup: (owner: ProviderProcessSupervisor) => void;
   }) => Report | Promise<Report>;
 }
 
@@ -75,6 +78,20 @@ export class PwntoolsDecoder<
   Report extends DecoderReport,
 > {
   readonly identity: ProviderIdentity;
+  #tail: Promise<void> = Promise.resolve();
+  readonly #admissions = new PendingOperations<
+    symbol,
+    "admitted" | "cancelled"
+  >();
+  #closing = false;
+  #closePromise: Promise<void> | undefined;
+  #pendingCleanup:
+    | {
+        root: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
+        process: ProviderProcessSupervisor | undefined;
+        readonly failure: AnalysisError | undefined;
+      }
+    | undefined;
   constructor(
     readonly profile: PwntoolsDecoderProfile<Input, Payload, Report>,
     readonly environment: Readonly<NodeJS.ProcessEnv>,
@@ -87,10 +104,45 @@ export class PwntoolsDecoder<
   }
 
   /** Snapshot one explicit artifact and return complete static observations without launching the selected object as a host process. */
-  async inspect(
+  inspect(
     input: Input,
     options?: ExecutionOptions,
   ): Promise<Result<Report, AnalysisError>> {
+    if (options?.signal?.aborted)
+      return Promise.resolve(
+        err(new AnalysisCancelledError(this.profile.operation)),
+      );
+    if (this.#closing) return Promise.resolve(err(this.#closedError()));
+    const key = Symbol();
+    const admission = this.#admissions.wait(key, {
+      ...(options?.signal === undefined ? {} : { signal: options.signal }),
+      cancelledValue: () => "cancelled",
+    });
+    const operation = this.#tail.then(() => {
+      this.#admissions.settle(key, "admitted");
+      if (options?.signal?.aborted)
+        return err(new AnalysisCancelledError(this.profile.operation));
+      return this.#closing
+        ? err(this.#closedError())
+        : this.#inspect(input, options);
+    });
+    this.#tail = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return admission.then((state) =>
+      state === "cancelled"
+        ? err(new AnalysisCancelledError(this.profile.operation))
+        : operation,
+    );
+  }
+
+  async #inspect(
+    input: Input,
+    options?: ExecutionOptions,
+  ): Promise<Result<Report, AnalysisError>> {
+    const pending = await this.#retire();
+    if (pending !== undefined) return err(pending);
     const OPERATION = this.profile.operation;
     const context = { operation: OPERATION, providerId: this.identity.id };
     const replySchema = z.discriminatedUnion("ok", [
@@ -115,6 +167,7 @@ export class PwntoolsDecoder<
       }),
     ]);
     let root: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
+    let processOwner: ProviderProcessSupervisor | undefined;
     let result: Result<Report, AnalysisError>;
     let phase: "configuration" | "artifact-read" | "decoder" = "configuration";
     const executablePath = this.environment.REA_PWNTOOLS_PYTHON ?? "";
@@ -275,9 +328,14 @@ export class PwntoolsDecoder<
           rootPath: root.path,
           diagnostics: capturedOutput,
           options,
+          retainProcessCleanup: (owner) => {
+            processOwner = owner;
+          },
         }),
       );
     } catch (cause: unknown) {
+      if (cause instanceof OwnedCommandFailure)
+        processOwner = cause.cleanupOwner;
       const evidence = await readPwntoolsFailureEvidence(cause, root?.path);
       result = err(
         options?.signal?.aborted &&
@@ -294,32 +352,40 @@ export class PwntoolsDecoder<
             ),
       );
     }
+    if (processOwner !== undefined) {
+      this.#pendingCleanup = {
+        root,
+        process: processOwner,
+        failure: result.ok ? undefined : result.error,
+      };
+      return result;
+    }
     if (root !== undefined) {
       try {
         await root.close();
       } catch (cause: unknown) {
-        return err(
-          new ProviderCleanupError(
-            this.identity.id,
-            [root.path],
-            {
-              reason: cause instanceof Error ? cause.message : String(cause),
-              previous_error: result.ok
-                ? null
-                : projectAnalysisError(result.error),
-              ...(result.ok
-                ? {
-                    captured_output: {
-                      stdout: result.value.diagnostics.stdout,
-                      stderr: result.value.diagnostics.stderr,
-                      truncated: result.value.diagnostics.truncated,
-                    },
-                  }
-                : {}),
-            },
-            { operation: OPERATION },
-          ),
+        const failure = new ProviderCleanupError(
+          this.identity.id,
+          [root.path],
+          {
+            reason: cause instanceof Error ? cause.message : String(cause),
+            previous_error: result.ok
+              ? null
+              : projectAnalysisError(result.error),
+            ...(result.ok
+              ? {
+                  captured_output: {
+                    stdout: result.value.diagnostics.stdout,
+                    stderr: result.value.diagnostics.stderr,
+                    truncated: result.value.diagnostics.truncated,
+                  },
+                }
+              : {}),
+          },
+          { operation: OPERATION },
         );
+        this.#pendingCleanup = { root, process: undefined, failure };
+        return err(failure);
       }
     }
     return result.ok && options?.signal?.aborted
@@ -333,5 +399,79 @@ export class PwntoolsDecoder<
           }),
         )
       : result;
+  }
+
+  /** Drain the running inspection, reject queued acquisition, and retry retained processes before deleting their files. */
+  close(): Promise<void> {
+    this.#closing = true;
+    this.#closePromise ??= this.#tail
+      .then(async () => {
+        const failure = await this.#retire();
+        if (failure !== undefined) throw failure;
+      })
+      .catch((cause: unknown) => {
+        this.#closePromise = undefined;
+        throw cause;
+      });
+    return this.#closePromise;
+  }
+
+  #closedError(): ProviderCleanupError {
+    return new ProviderCleanupError(
+      this.identity.id,
+      [],
+      { reason: "Provider is closing" },
+      { operation: this.profile.operation },
+    );
+  }
+
+  async #retire(): Promise<ProviderCleanupError | undefined> {
+    const pending = this.#pendingCleanup;
+    if (pending === undefined) return undefined;
+    if (pending.process !== undefined) {
+      const stopped = await pending.process.stop();
+      if (stopped.status === "incomplete")
+        return new ProviderCleanupError(
+          this.identity.id,
+          [
+            pending.process.launch.ownership?.runId ?? "owned-decoder",
+            ...(pending.root === undefined ? [] : [pending.root.path]),
+          ],
+          {
+            reason: stopped.reason,
+            captured_output: {
+              ...capturedPwntoolsOutput(pending.process.snapshot()),
+            },
+            previous_error:
+              pending.failure === undefined
+                ? null
+                : projectAnalysisError(pending.failure),
+          },
+          { operation: this.profile.operation },
+        );
+      pending.process = undefined;
+    }
+    if (pending.root !== undefined) {
+      const root = pending.root;
+      try {
+        await root.close();
+        pending.root = undefined;
+      } catch (cause: unknown) {
+        return new ProviderCleanupError(
+          this.identity.id,
+          [root.path],
+          {
+            reason: cause instanceof Error ? cause.message : String(cause),
+            previous_error:
+              pending.failure === undefined
+                ? null
+                : projectAnalysisError(pending.failure),
+          },
+          { operation: this.profile.operation, cause },
+        );
+      }
+    }
+    this.#pendingCleanup = undefined;
+    return undefined;
   }
 }

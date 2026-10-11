@@ -11,6 +11,7 @@ import { PWNTOOLS_PROVIDER_IDENTITY } from "../../../src/native/pwntools/Pwntool
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { waitForProviderProcessReady } from "../../fixtures/providerProcess.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
+import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 import { binaryLayoutFixture } from "../../fixtures/binaryDiagnostics/layout.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 
@@ -94,6 +95,7 @@ it.runIf(!unsupportedHost)(
   async () => {
     const { path } = await fixture();
     let ownedPath = "";
+    let cleanupAllowed = false;
     const provider = new PwntoolsLayoutProvider(
       { REA_PWNTOOLS_PYTHON: process.execPath },
       async (spawn) => {
@@ -106,7 +108,8 @@ it.runIf(!unsupportedHost)(
         return {
           ...launched,
           cleanup: async () => {
-            await launched.cleanup?.();
+            if (cleanupAllowed)
+              return cleanupOwnedProcessGroup(launched.ownership);
             throw new Error("injected post-cleanup reporting failure");
           },
         };
@@ -122,6 +125,9 @@ it.runIf(!unsupportedHost)(
         captured_output: { truncated: true, stderr: "" },
       },
     });
+    await expect(access(ownedPath)).resolves.toBeUndefined();
+    cleanupAllowed = true;
+    await provider.close();
     await expect(access(ownedPath)).rejects.toMatchObject({ code: "ENOENT" });
   },
 );

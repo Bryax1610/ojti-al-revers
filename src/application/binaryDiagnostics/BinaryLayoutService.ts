@@ -21,6 +21,10 @@ const OPERATION = "inspect_binary_layout";
 export class BinaryLayoutService {
   constructor(readonly provider: BinaryLayoutPort) {}
 
+  close(): Promise<void> {
+    return this.provider.close?.() ?? Promise.resolve();
+  }
+
   /** Bind complete observations to the caller-selected artifact before creating Evidence. */
   async inspect(
     rawInput: unknown,

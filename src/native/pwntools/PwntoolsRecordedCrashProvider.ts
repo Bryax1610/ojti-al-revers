@@ -49,6 +49,7 @@ export class PwntoolsRecordedCrashProvider
           rootPath,
           diagnostics,
           options,
+          retainProcessCleanup,
         }) => {
           const validate = (debuggerContext: RecordedCrash["debugger"]) =>
             recordedCrashSchema.safeParse({
@@ -119,6 +120,7 @@ export class PwntoolsRecordedCrashProvider
             rootPath,
             diagnostics,
             options,
+            retainProcessCleanup,
             ...(launcher === undefined ? {} : { launcher }),
           });
           const enriched = validate(context);

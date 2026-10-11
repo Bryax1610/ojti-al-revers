@@ -14,9 +14,13 @@ import {
 
 it("advertises exact valid schemas and records inline layout without a binary target", async () => {
   const value = binaryLayoutFixture();
+  let providerClosed = false;
   const service = new BinaryLayoutService({
     identity: BINARY_LAYOUT_TEST_PROVIDER,
     inspect: () => Promise.resolve(ok(value)),
+    close: async () => {
+      providerClosed = true;
+    },
   });
   const session = createTestBinarySession(() => {
     throw new Error("deep provider must not start");
@@ -29,6 +33,7 @@ it("advertises exact valid schemas and records inline layout without a binary ta
   onTestFinished(async () => {
     await client.close();
     await server.close();
+    expect(providerClosed).toBe(true);
     await session.close();
   });
   const [clientTransport, serverTransport] =

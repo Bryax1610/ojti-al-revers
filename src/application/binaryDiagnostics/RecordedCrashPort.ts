@@ -12,6 +12,7 @@ import type { Result } from "../../domain/result.js";
 /** Replaceable decoder of supplied recordings; historical PID is never live authority. */
 export interface RecordedCrashPort {
   readonly identity: ProviderIdentity;
+  close?(): Promise<void>;
   inspect(
     input: InspectRecordedCrashInput,
     options?: ExecutionOptions,

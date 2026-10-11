@@ -14,9 +14,13 @@ import {
 
 it("advertises exact valid schemas and records inline recorded-core evidence without a binary target", async () => {
   const value = recordedCrashFixture();
+  let providerClosed = false;
   const service = new RecordedCrashService({
     identity: RECORDED_CRASH_TEST_PROVIDER,
     inspect: () => Promise.resolve(ok(value)),
+    close: async () => {
+      providerClosed = true;
+    },
   });
   const session = createTestBinarySession(() => {
     throw new Error("deep provider must not start");
@@ -29,6 +33,7 @@ it("advertises exact valid schemas and records inline recorded-core evidence wit
   onTestFinished(async () => {
     await client.close();
     await server.close();
+    expect(providerClosed).toBe(true);
     await session.close();
   });
   const [clientTransport, serverTransport] =
