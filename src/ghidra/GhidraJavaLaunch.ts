@@ -26,6 +26,9 @@ export const ghidraJavaLaunch = async (options: {
   ];
   const supportArguments = [
     ...isolatedProperties,
+    // HotSpot warnings default to stdout, where they corrupt LaunchSupport output.
+    "-Xlog:disable",
+    "-Xlog:all=warning:stderr",
     "-cp",
     join(supportRoot, "LaunchSupport.jar"),
     "LaunchSupport",
