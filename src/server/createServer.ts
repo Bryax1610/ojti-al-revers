@@ -4,6 +4,9 @@ import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
 import type { EvmInterfaceService } from "../application/evm/EvmInterfaceService.js";
 import { createEvmInterfaceService } from "../composition/evm.js";
 import { registerEvmTools } from "./registerEvmTools.js";
+import type { SqliteDatabaseService } from "../application/sqlite/SqliteDatabaseService.js";
+import { createSqliteDatabaseService } from "../composition/sqlite.js";
+import { registerSqliteTools } from "./registerSqliteTools.js";
 import { registerRecordedCrashTools } from "./registerRecordedCrashTools.js";
 import { createRecordedCrashService } from "../composition/binaryDiagnostics.js";
 import type { RecordedCrashService } from "../application/binaryDiagnostics/RecordedCrashService.js";
@@ -104,6 +107,7 @@ export interface CreateServerOptions {
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
   readonly delivery?: ToolResultDelivery;
   readonly evmInterface?: EvmInterfaceService;
+  readonly sqliteDatabase?: SqliteDatabaseService;
   readonly logger?: Logger;
   readonly binaryLayout?: BinaryLayoutService;
   readonly recordedCrash?: RecordedCrashService;
@@ -207,6 +211,8 @@ export const createServer = (
   const delivery = selectToolResultDelivery(environment, options.delivery);
   const evmInterface =
     options.evmInterface ?? createEvmInterfaceService(environment);
+  const sqliteDatabase =
+    options.sqliteDatabase ?? createSqliteDatabaseService(environment);
   const webSourceLocation =
     options.webSourceLocation ?? createWebSourceLocationService(environment);
   const javascriptRecovery =
@@ -220,6 +226,7 @@ export const createServer = (
     environment,
     delivery,
     evmInterface,
+    sqliteDatabase,
     webSourceLocation,
     javascriptRecovery,
   };
@@ -246,6 +253,7 @@ export const createServer = (
       jeb.close(),
       adbDevice.close(),
       evmInterface.close(),
+      sqliteDatabase.close(),
       webSourceLocation.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
       artifactResources.close(),
@@ -419,6 +427,12 @@ const registerConfiguredAnalysisTools = (
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
+  );
+  registerSqliteTools(
+    server,
+    options.sqliteDatabase ?? createSqliteDatabaseService(environment),
+    toolLogger,
+    recordEvidence,
   );
   registerRecordedCrashTools(
     server,

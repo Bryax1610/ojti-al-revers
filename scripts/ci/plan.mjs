@@ -122,6 +122,8 @@ if (
       file === ".github/actionlint.yaml"
     ) {
       selected.workflows = true;
+      // SQLite reuses this run's compiled artifact, so workflow edits need build.
+      if (file === ".github/workflows/sqlite-runtime.yml") selected.code = true;
       if (file !== ".github/workflows/ci.yml") continue;
     }
     if (owners.length === 1 && owners[0] === "website") continue;
