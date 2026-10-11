@@ -151,6 +151,14 @@ listed after the table because its connector is not one of these files:
 | OMP                | `omp`            |
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
+| Qoder              | `qoder`          |
+
+For [Qoder](https://docs.qoder.com/cli/mcp-reference), setup writes
+`mcpServers.rea` into the user-level `~/.qoder/settings.json` (the
+`QODER_CONFIG_DIR` override is honored). Entries carry `command`, `args`, and
+`env`; stdio is the default transport. Qoder installs Skills through its
+Extensions UI rather than a personal skills directory, so setup does not
+install a skill copy.
 
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
 chat with REA's full input-schema profile before sending a model request
