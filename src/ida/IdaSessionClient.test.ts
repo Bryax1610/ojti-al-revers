@@ -722,6 +722,232 @@ describe("headless IDA session ownership and cleanup", () => {
   });
 });
 
+const openGeneration = "123456789abc4def8abc123456789abc";
+
+/** Simulate the actual #551 idb_open and idb_close wire shapes without IDA binaries. */
+const reapedWorker = async (reap = true) => {
+  const context = await fixture("headless");
+  const { producer, client } = context;
+  producer.overrideCall = (name, args) => {
+    if (name !== "idb_open") return undefined;
+    const sessionId = z.string().parse(args.preferred_session_id);
+    const inputPath = z.string().parse(args.input_path);
+    producer.database = sessionId;
+    producer.inputPath = inputPath;
+    return {
+      success: true,
+      session: {
+        session_id: sessionId,
+        input_path: inputPath,
+        release_id: openGeneration,
+      },
+    };
+  };
+  expect((await client.execute("health", {})).ok).toBe(true);
+  const sessionId = producer.database;
+  if (sessionId === undefined) throw new Error("Expected owned session");
+  const inputPath = producer.inputPath;
+  if (reap) producer.database = undefined;
+  const release = (): Record<string, JsonValue> => ({
+    status: "terminated",
+    verified: true,
+    session_id: sessionId,
+    input_path: inputPath,
+    release_id: openGeneration,
+    backend: "worker",
+    owned: true,
+    worker_pid: 4242,
+    exit_code: -9,
+  });
+  const closeResponse = (): Record<string, JsonValue> => ({
+    success: true,
+    session_id: sessionId,
+    saved: null,
+    owned: true,
+    backend: "worker",
+    release: release(),
+  });
+  let response: JsonValue = closeResponse();
+  producer.overrideCall = (name) => {
+    if (name !== "idb_close") return undefined;
+    producer.database = undefined;
+    return response;
+  };
+  const setCloseReply = (payload: JsonValue) => {
+    response = payload;
+  };
+  return {
+    ...context,
+    sessionId,
+    inputPath,
+    release,
+    closeResponse,
+    setCloseReply,
+  };
+};
+
+describe("IDA #551 reaped worker lifecycle", () => {
+  it("does not clear absent session plus empty idb_list when release is unproved", async () => {
+    const { producer, client, root, setCloseReply } = await reapedWorker();
+    setCloseReply({ error: "Worker release unknown" });
+    expect((await client.close()).ok).toBe(false);
+    expect((await client.close()).ok).toBe(false);
+    expect(producer.closes).toBe(0);
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+    ).toBe(true);
+    expect(
+      producer.calls.filter((call) => call.name === "idb_close"),
+    ).toHaveLength(2);
+  });
+
+  it("releases exact reaped worker with idempotent receipt and concurrent callers", async () => {
+    const { producer, client, root, inputPath, sessionId } =
+      await reapedWorker();
+    const closed = await Promise.all([client.close(), client.close()]);
+    expect(closed.every((result) => result.ok)).toBe(true);
+    expect(producer.closes).toBe(1);
+    const requests = producer.calls.filter(({ name }) => name === "idb_close");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.args).toEqual({
+      database: sessionId,
+      save: false,
+      expected_input_path: inputPath,
+      release_id: openGeneration,
+    });
+    expect(
+      producer.calls.some(
+        ({ name, args }) =>
+          name === "idb_list" && args.strict_discovery === true,
+      ),
+    ).toBe(true);
+    expect(await readdir(root)).toEqual(["target.elf"]);
+    expect((await client.close()).ok).toBe(true);
+  });
+
+  it("preserves normal #551 live-worker close and save=false", async () => {
+    const { producer, client, root, inputPath, sessionId } =
+      await reapedWorker(false);
+    expect((await client.close()).ok).toBe(true);
+    expect(
+      producer.calls.find(({ name }) => name === "idb_close")?.args,
+    ).toEqual({
+      database: sessionId,
+      save: false,
+      expected_input_path: inputPath,
+      release_id: openGeneration,
+    });
+    expect(producer.closes).toBe(1);
+    expect(await readdir(root)).toEqual(["target.elf"]);
+  });
+
+  it("retains workspace when verified release is followed by explicit discovery error", async () => {
+    const { producer, client, root } = await reapedWorker();
+    let fail = true;
+    producer.overrideCall = ((original) => (name, args) => {
+      if (name === "idb_list" && fail) return { error: "enumeration failed" };
+      return original(name, args);
+    })(producer.overrideCall!);
+    expect((await client.close()).ok).toBe(false);
+    expect(producer.closes).toBe(0);
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+    ).toBe(true);
+    fail = false;
+    expect((await client.close()).ok).toBe(true);
+    expect(
+      producer.calls.filter(({ name }) => name === "idb_close"),
+    ).toHaveLength(1);
+    expect(producer.closes).toBe(1);
+    expect(await readdir(root)).toEqual(["target.elf"]);
+  });
+});
+
+describe("IDA #551 invalid worker release safety", () => {
+  it.each([
+    "missing-release",
+    "false-verification",
+    "unverified-status",
+    "wrong-session",
+    "wrong-input",
+    "wrong-generation",
+    "unowned",
+    "gui",
+    "no-pid",
+    "no-exit",
+    "failed-close",
+    "still-referenced",
+    "incomplete-scan",
+    "missing-scan-proof",
+    "wrong-scan-count",
+  ] as const)("keeps private resources for %s", async (kind) => {
+    const {
+      producer,
+      client,
+      root,
+      closeResponse,
+      setCloseReply,
+      sessionId,
+      inputPath,
+    } = await reapedWorker();
+    const response = closeResponse();
+    const proof = response.release as Record<string, JsonValue>;
+    if (kind === "missing-release") delete response.release;
+    if (kind === "false-verification") proof.verified = false;
+    if (kind === "unverified-status") proof.status = "pending";
+    if (kind === "wrong-session") proof.session_id = "foreign";
+    if (kind === "wrong-input") proof.input_path = inputPath + ".foreign";
+    if (kind === "wrong-generation")
+      proof.release_id = "fedcba9876544cba8765fedcba987654";
+    if (kind === "unowned") proof.owned = false;
+    if (kind === "gui") proof.backend = "gui";
+    if (kind === "no-pid") delete proof.worker_pid;
+    if (kind === "no-exit") delete proof.exit_code;
+    if (kind === "failed-close") response.success = false;
+    if (
+      kind === "still-referenced" ||
+      kind === "incomplete-scan" ||
+      kind === "missing-scan-proof" ||
+      kind === "wrong-scan-count"
+    ) {
+      producer.overrideCall = ((original) => (name, args) => {
+        if (name === "idb_list")
+          return kind === "still-referenced"
+            ? {
+                sessions: [
+                  {
+                    session_id: sessionId,
+                    input_path: inputPath,
+                    owned: true,
+                    backend: "worker",
+                    is_active: true,
+                  },
+                ],
+                count: 1,
+                registry_scan_complete: true,
+              }
+            : {
+                sessions: [],
+                count: kind === "wrong-scan-count" ? 1 : 0,
+                ...(kind === "missing-scan-proof"
+                  ? {}
+                  : { registry_scan_complete: kind !== "incomplete-scan" }),
+              };
+        return original(name, args);
+      })(producer.overrideCall!);
+    }
+    setCloseReply(response);
+    const result = await client.close();
+    expect(result.ok, kind).toBe(false);
+    if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
+    expect(producer.closes, kind).toBe(0);
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+      kind,
+    ).toBe(true);
+  });
+});
+
 describe("headless IDA cleanup verification", () => {
   it("retries failed worker release through the retained connection before removing its workspace", async () => {
     const { producer, client, root } = await fixture("headless");
@@ -766,7 +992,7 @@ describe("headless IDA cleanup verification", () => {
     ).toHaveLength(1);
     expect(await readdir(root)).toEqual(["target.elf"]);
   });
-  it("never closes an unrelated database when startup returns a different input identity", async () => {
+  it("retains the private workspace when startup returns a different input identity", async () => {
     const { producer, client, root } = await fixture("headless");
     producer.overrideCall = (name) =>
       name === "idb_open"
@@ -779,9 +1005,13 @@ describe("headless IDA cleanup verification", () => {
           }
         : undefined;
     expect((await client.execute("health", {})).ok).toBe(false);
-    expect((await client.close()).ok).toBe(true);
+    const closed = await client.close();
+    expect(closed.ok).toBe(false);
+    if (!closed.ok) expect(closed.error.cleanupIncomplete).toBe(true);
     expect(producer.calls.some(({ name }) => name === "idb_close")).toBe(false);
-    expect(await readdir(root)).toEqual(["target.elf"]);
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+    ).toBe(true);
   });
   it("releases a privately owned worker after malformed open output using verified session inventory", async () => {
     const { producer, client, root } = await fixture("headless");
