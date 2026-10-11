@@ -57,7 +57,10 @@ export async function connectLocalToolsMcp() {
       );
       compiledInputs.add(name);
     }
-    const response = await client.callTool({ name, arguments: arguments_ });
+    const response = await client.callTool(
+      { name, arguments: arguments_ },
+      definition === undefined ? undefined : { toolDefinition: definition },
+    );
     if (
       response.structuredContent !== undefined &&
       definition?.outputSchema !== undefined

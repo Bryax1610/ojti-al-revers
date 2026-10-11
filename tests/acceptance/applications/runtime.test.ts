@@ -17,12 +17,19 @@ const fixturePath = fileURLToPath(
   new URL("../../fixtures/fakeLauncher.mjs", import.meta.url),
 );
 
-const expectAvailableToolInventory = async (client: Client) => {
-  const listed = await client.listTools();
-  const status = await client.callTool({
-    name: "binary_session",
-    arguments: {},
-  });
+const expectAvailableToolInventory = async (
+  client: Client,
+  listed: Awaited<ReturnType<Client["listTools"]>>,
+) => {
+  const binarySession = listed.tools.find(
+    ({ name }) => name === "binary_session",
+  );
+  if (binarySession === undefined)
+    throw new Error("The compiled catalog omitted binary_session");
+  const status = await client.callTool(
+    { name: "binary_session", arguments: {} },
+    { toolDefinition: binarySession },
+  );
   expect(status.isError).not.toBe(true);
   const availability = z
     .object({
@@ -161,6 +168,9 @@ describe("production stdio runtime", () => {
     15_000,
   );
 
+  // Use the suite's bounded acceptance deadline, including its coverage allowance.
+  // This cold-start workflow computes the growing catalog's schema digests; it
+  // verifies catalog and lifecycle behavior, not a 15-second performance target.
   it("serves the compiled catalog without an initial target or fatal record", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -180,7 +190,10 @@ describe("production stdio runtime", () => {
     try {
       await client.connect(transport);
       // Keep catalog parity independent of initial target/provider startup.
-      const status = await expectAvailableToolInventory(client);
+      // Validate each called tool against its advertised definition without
+      // asking the SDK to compile every unrelated output schema in the catalog.
+      const listed = await client.listTools();
+      const status = await expectAvailableToolInventory(client, listed);
       expect(
         z
           .object({ result: z.object({ open: z.boolean() }) })
@@ -188,10 +201,15 @@ describe("production stdio runtime", () => {
       ).toEqual({ open: false });
       // Closing the empty session produces a structured lifecycle record,
       // making the fatal-record check observable without launching a provider.
-      const closed = await client.callTool({
-        name: "close_binary",
-        arguments: {},
-      });
+      const closeBinary = listed.tools.find(
+        ({ name }) => name === "close_binary",
+      );
+      if (closeBinary === undefined)
+        throw new Error("The compiled catalog omitted close_binary");
+      const closed = await client.callTool(
+        { name: "close_binary", arguments: {} },
+        { toolDefinition: closeBinary },
+      );
       expect(closed.isError).not.toBe(true);
     } finally {
       await client.close();
@@ -218,10 +236,7 @@ describe("production stdio runtime", () => {
         record.level >= 50,
     );
     expect(fatal).toEqual([]);
-    // Full catalog discovery and first-call SDK schema compilation take about
-    // 8–9 seconds on one local CPU; the 15-second budget repeatedly expired in
-    // parallel CI shards. Keep a finite budget for the complete workflow.
-  }, 30_000);
+  });
 
   it.runIf(process.platform === "darwin")(
     "serves a database-kind initial target without a fatal record on macOS",
