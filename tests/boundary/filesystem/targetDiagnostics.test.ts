@@ -7,6 +7,59 @@ import { projectAnalysisError } from "../../../src/domain/analysisErrorProjectio
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 describe("target route diagnostics", () => {
+  it.each(["module.wasm", "module.bin", "misleading.js"])(
+    "identifies a WASM v1 header in %s without suggesting native provider installation",
+    async (name) => {
+      const directory = await createTestTempDirectory("rea-wasm-target-");
+      const path = join(directory, name);
+      const bytes = Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]);
+      await writeFile(path, bytes);
+      const result = await parseBinaryTarget(path);
+      if (result.ok) throw new Error("WASM was admitted to native opening");
+      const projected = projectAnalysisError(result.error);
+      expect(projected).toMatchObject({
+        code: "target_unavailable",
+        category: "unsupported_target",
+        retryable: false,
+        details: {
+          path: await realpath(path),
+          constraint: "wasm_requires_static_inspection",
+        },
+      });
+      expect(projected.message).toContain("WebAssembly");
+      expect(projected.remediation.action).toContain("inspect_wasm_artifact");
+      expect(projected.remediation.action).toContain("REA_WABT_BIN_DIRECTORY");
+      expect(projected.remediation.action).toContain("WABT 1.0.42");
+      expect(projected.remediation.action).toContain("does not execute");
+      expect(await systemDoctorHost().inspectTarget?.(path)).toMatchObject({
+        ok: false,
+        classification: "unsupported_target",
+        details: { constraint: "wasm_requires_static_inspection" },
+        remediation: projected.remediation.action,
+      });
+    },
+  );
+
+  it.each([
+    [0, 0x61, 0x73, 0x6d],
+    [0, 0x61, 0x73, 0x6d, 2, 0, 0, 0],
+    [1, 2, 3, 4, 5, 6, 7, 8],
+  ])(
+    "does not infer supported WASM encoding from a suffix or incomplete header",
+    async (...bytes) => {
+      const directory = await createTestTempDirectory("rea-wasm-unknown-");
+      const path = join(directory, "module.wasm");
+      await writeFile(path, Buffer.from(bytes));
+      const result = await parseBinaryTarget(path);
+      if (result.ok) throw new Error("unknown header was admitted");
+      const projected = projectAnalysisError(result.error);
+      expect(projected.details).not.toHaveProperty("constraint");
+      expect(projected.remediation.action).not.toContain(
+        "inspect_wasm_artifact",
+      );
+    },
+  );
+
   it("identifies the directory opening constraint and gives the direct analysis route", async () => {
     const directory = await createTestTempDirectory("rea-js-target-");
     await writeFile(join(directory, "index.js"), "export const answer = 42;\n");
