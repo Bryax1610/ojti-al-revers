@@ -26,10 +26,23 @@ import {
 import { readManagedValue } from "./ManagedReaderFailure.js";
 import { methodBody } from "./ManagedMethodBodyReader.js";
 
+/**
+ * Declaring-type tokens whose members are decoded in full; null selects every
+ * type. Unselected members keep only their name so edges stay labelled.
+ */
+export type SelectedTypeTokens = ReadonlySet<string> | null;
+
+const isSelected = (
+  selected: SelectedTypeTokens,
+  declared: { readonly token: string } | null,
+): boolean =>
+  selected === null || (declared !== null && selected.has(declared.token));
+
 export const parseFields = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
   ranges: readonly TypeRange[],
+  selected: SelectedTypeTokens = null,
 ): {
   readonly fields: readonly ManagedField[];
   readonly core: ReadonlyMap<string, FieldCore>;
@@ -50,14 +63,16 @@ export const parseFields = (
         cursor.readIndex(layout.stringIndexSize),
         layout.strings.size,
       );
+      const declared = declaringType(row);
+      const token = metadataToken(4, row);
+      core.set(token, { token, name });
+      if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
         bytes,
         layout,
         cursor.readIndex(layout.blobIndexSize),
         layout.blob.size,
       );
-      const declared = declaringType(row);
-      const token = metadataToken(4, row);
       fields.push({
         token,
         row_offset: cursor.start,
@@ -67,7 +82,6 @@ export const parseFields = (
         flags,
         signature: budgetedSignature(sig, layout),
       });
-      core.set(token, { token, name });
     }, issues);
   }
   return { fields, core, issues };
@@ -143,6 +157,7 @@ interface ParseMethodsInput {
   readonly layout: ManagedMetadataLayout;
   readonly pe: ManagedPeLayout;
   readonly ranges: readonly TypeRange[];
+  readonly selected?: SelectedTypeTokens;
 }
 
 export const parseMethods = ({
@@ -150,6 +165,7 @@ export const parseMethods = ({
   layout,
   pe,
   ranges,
+  selected = null,
 }: ParseMethodsInput): {
   readonly methods: readonly ManagedMethod[];
   readonly core: ReadonlyMap<string, MethodCore>;
@@ -172,6 +188,14 @@ export const parseMethods = ({
         cursor.readIndex(layout.stringIndexSize),
         layout.strings.size,
       );
+      const declared = declaringType(row);
+      const token = metadataToken(6, row);
+      core.set(token, {
+        token,
+        name,
+        declaringType: declared?.fullName ?? null,
+      });
+      if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
         bytes,
         layout,
@@ -179,8 +203,6 @@ export const parseMethods = ({
         layout.blob.size,
       );
       cursor.readIndex(layout.tableIndexSize(8));
-      const declared = declaringType(row);
-      const token = metadataToken(6, row);
       methods.push({
         token,
         row_offset: cursor.start,
@@ -198,11 +220,6 @@ export const parseMethods = ({
           { implFlags, flags },
           managedDecodeBudget(layout),
         ),
-      });
-      core.set(token, {
-        token,
-        name,
-        declaringType: declared?.fullName ?? null,
       });
     }, issues);
   }

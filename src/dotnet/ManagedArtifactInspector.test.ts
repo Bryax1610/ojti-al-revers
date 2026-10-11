@@ -177,6 +177,24 @@ describe("managed artifact coded indexes", () => {
     });
   });
 
+  it("names a MethodDef attribute constructor by its declaring type", () => {
+    // CustomAttributeType tag 2 selects MethodDef row 1, owned by Fixture.Program.
+    const bytes = buildManagedPeFixture({
+      customAttributeTypeRaw: (1 << 3) | 2,
+    });
+    const result = inspectManagedArtifactBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(result.attributes).toEqual([
+      expect.objectContaining({
+        constructor_token: "0x06000001",
+        type_name: "Fixture.Program",
+      }),
+    ]);
+  });
+
   it("reports an invalid CustomAttribute constructor coded index", () => {
     const bytes = buildManagedPeFixture({ customAttributeTypeRaw: 19 });
     const result = inspectManagedArtifactBytes(

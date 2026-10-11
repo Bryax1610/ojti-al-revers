@@ -22,18 +22,24 @@ import {
   ManagedReaderFailure,
   uniqueManagedParseIssues,
 } from "./ManagedReaderFailure.js";
-import { parseTypes, typeRanges } from "./ManagedMemberInspectorCore.js";
+import {
+  parseTypes,
+  typeRanges,
+  type TypeRange,
+} from "./ManagedMemberInspectorCore.js";
 import {
   edges,
   parseFields,
   parseMemberRefs,
   parseMethods,
+  type SelectedTypeTokens,
 } from "./ManagedMemberRows.js";
 
 const unavailable = (
   target: BinaryTarget,
   bytes: Buffer,
   issue: ManagedParseIssue | null,
+  typeNames: readonly string[] | undefined,
 ): ManagedMemberInspection =>
   managedMemberInspectionSchema.parse(
     admitManagedProjection({
@@ -65,6 +71,11 @@ const unavailable = (
       member_refs: [],
       call_edges: [],
       field_accesses: [],
+      // Nothing was examined, so no requested name is known to be unmatched.
+      selection:
+        typeNames === undefined
+          ? null
+          : { type_names: [...typeNames], unmatched_type_names: [] },
       coverage: {
         state: "unavailable",
         issues: issue === null ? [] : [issue],
@@ -103,21 +114,59 @@ const readMemberInventory = (
   return { layout, inventory };
 };
 
-/** Inspect metadata members and method bodies without loading target code. */
+const selectTypes = (
+  ranges: readonly TypeRange[],
+  typeNames: readonly string[] | undefined,
+): {
+  readonly tokens: SelectedTypeTokens;
+  readonly selection: ManagedMemberInspection["selection"];
+  readonly unreadableNames: number;
+} => {
+  if (typeNames === undefined)
+    return { tokens: null, selection: null, unreadableNames: 0 };
+  const requested = new Set(typeNames);
+  const tokens = new Set<string>();
+  const matched = new Set<string>();
+  for (const range of ranges) {
+    if (range.fullName === null || !requested.has(range.fullName)) continue;
+    tokens.add(range.token);
+    matched.add(range.fullName);
+  }
+  return {
+    tokens,
+    unreadableNames: ranges.filter(({ fullName }) => fullName === null).length,
+    selection: {
+      type_names: [...typeNames],
+      unmatched_type_names: typeNames.filter((name) => !matched.has(name)),
+    },
+  };
+};
+
+/**
+ * Inspect metadata members and method bodies without loading target code.
+ * Selected type names restrict full decoding to members of those exact types.
+ */
 export const inspectManagedMembersBytes = (
   bytes: Buffer,
   target: BinaryTarget,
+  { typeNames }: { readonly typeNames?: readonly string[] } = {},
 ): ManagedMemberInspection => {
   const pe = readManagedPeLayout(bytes);
-  if (pe.cli === null) return unavailable(target, bytes, pe.cliIssue);
+  if (pe.cli === null)
+    return unavailable(target, bytes, pe.cliIssue, typeNames);
   const issues: ManagedParseIssue[] = [];
   try {
     const { layout, inventory } = readMemberInventory(bytes, pe, issues);
     issues.push(...inventory.issues);
     const ranges = typeRanges(bytes, layout, issues);
+    const {
+      tokens: selected,
+      selection,
+      unreadableNames,
+    } = selectTypes(ranges, typeNames);
     const parsedTypes = parseTypes(bytes, layout, ranges);
     issues.push(...parsedTypes.issues);
-    const fields = parseFields(bytes, layout, ranges);
+    const fields = parseFields(bytes, layout, ranges, selected);
     const memberRefs = parseMemberRefs(bytes, layout);
     issues.push(...memberRefs.issues);
     const methods = parseMethods({
@@ -125,6 +174,7 @@ export const inspectManagedMembersBytes = (
       layout,
       pe,
       ranges,
+      selected,
     });
     issues.push(...fields.issues, ...methods.issues);
     const coverageIssues = uniqueManagedParseIssues(issues);
@@ -163,12 +213,16 @@ export const inspectManagedMembersBytes = (
             requires_artifact_sha256: target.sha256,
             requires_mvid: inventory.module?.mvid ?? null,
           },
-          types: parsedTypes.types,
+          types:
+            selected === null
+              ? parsedTypes.types
+              : parsedTypes.types.filter((type) => selected.has(type.token)),
           fields: fields.fields,
           methods: methods.methods,
           member_refs: memberRefs.refs,
           call_edges: related.callEdges,
           field_accesses: related.fieldAccesses,
+          selection,
           coverage: {
             state:
               issues.length === 0 && !incompleteMembers
@@ -180,6 +234,16 @@ export const inspectManagedMembersBytes = (
             "Metadata tokens are build-local coordinates and are only meaningful with the reported artifact SHA-256 and MVID.",
             "CIL instruction anchors are decoded from file-backed method bodies only; no target assembly is loaded or executed.",
             "Signatures are decoded for common ECMA-335 primitive, class, valuetype, pointer, byref, array, and generic variable forms; unsupported forms retain raw signature hashes.",
+            ...(selection === null
+              ? []
+              : [
+                  "Types, fields, methods, call edges, and field accesses cover only the selected declaring types; coverage describes that selection. Edge targets outside it keep their names but are not described.",
+                ]),
+            ...(unreadableNames === 0
+              ? []
+              : [
+                  `${String(unreadableNames)} TypeDef name(s) could not be read; a name in selection.unmatched_type_names may belong to one of them, so its absence is not observed.`,
+                ]),
           ],
         },
         managedDecodeBudget(layout),
@@ -187,7 +251,7 @@ export const inspectManagedMembersBytes = (
     );
   } catch (cause: unknown) {
     if (cause instanceof ManagedReaderFailure)
-      return unavailable(target, bytes, cause.issue);
+      return unavailable(target, bytes, cause.issue, typeNames);
     throw cause;
   }
 };

@@ -119,7 +119,7 @@ export const runProviderAnalysis = async (
   ]
 ): Promise<JsonValue> =>
   isManagedToolName(tool)
-    ? runManagedProviderAnalysis(dependencies, path, tool, signal)
+    ? runManagedProviderAnalysis(dependencies, path, tool, arguments_, signal)
     : withProcessCancellation(signal, (operationSignal) =>
         runAnalysis(dependencies, path, tool, arguments_, {
           logger,
@@ -134,6 +134,7 @@ export const runManagedProviderExecution = async (
   path: string,
   tool: ManagedToolName,
   signal?: AbortSignal,
+  parameters: Readonly<Record<string, JsonValue>> = {},
 ): Promise<Result<AnalysisExecution, AnalysisError>> =>
   withProcessCancellation(signal, async (operationSignal) => {
     const session = await dependencies.createManagedBinarySession();
@@ -142,7 +143,9 @@ export const runManagedProviderExecution = async (
       async () => {
         const opened = await session.open(path, { signal: operationSignal });
         if (!opened.ok) return opened;
-        return await session.execute(tool, {}, { signal: operationSignal });
+        return await session.execute(tool, parameters, {
+          signal: operationSignal,
+        });
       },
       managedAnalysisCleanupFailure,
     );
@@ -152,6 +155,7 @@ const runManagedProviderAnalysis = async (
   dependencies: DirectAnalysisDependencies,
   path: string,
   tool: ManagedToolName,
+  arguments_: Readonly<Record<string, JsonValue>>,
   signal?: AbortSignal,
 ): Promise<JsonValue> => {
   const execution = await runManagedProviderExecution(
@@ -159,12 +163,13 @@ const runManagedProviderAnalysis = async (
     path,
     tool,
     signal,
+    arguments_,
   );
   if (!execution.ok) return cliError(execution.error);
   const value = execution.value;
   return createEvidence(value.subject ?? undefined, value.provider, {
     operation: tool,
-    parameters: {},
+    parameters: arguments_,
     result: value.result,
     rawResult: value.rawResult,
     limitations: value.limitations,
