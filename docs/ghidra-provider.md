@@ -76,6 +76,24 @@ flag and affected callers are repaired in the same pass. Unknown imports and
 genuine no-return imports keep their flags. Analysis profiles version this repair
 so snapshots produced before it are not reused. Windows P0 does not run it.
 
+`analyze_function` and `inspect_native_api` retain instruction-backed
+`prototype_diagnostics` alongside the inferred types, signature source and
+confidence. The initial checks support x86-32. They compare unmodified entry
+stack reads with recovered parameter storage and supported compiler-model
+slots, and compare near-return cleanup with stack extent. Cleanup bytes do not
+establish a source parameter count. Direct shared epilogues are probed through
+at most 16 simple instructions without adding owned-body ranges.
+
+EAX forwarding and x87 operations are observations requiring corroboration,
+including incomplete expressions and unknown conversion semantics. Checks stop
+at calls, conditional/raw p-code control flow and unsupported user-ops; aliased
+writes, custom allocation and dynamic stack adjustments retain uncertainty.
+`prototype_check_limitations` records scope even when no conflict is found.
+Unsupported architectures report consistency as unknown. Selected native API
+and assembly views preserve these limitations and diagnostic assumptions.
+Older retained Evidence keeps omitted diagnostic fields and reports that its
+instruction/prototype consistency was not recorded.
+
 `npm run verify:ghidra` compiles the versioned C oracle into debug and stripped
 host-native targets (x86-64/AArch64 ELF on Linux or Mach-O on macOS), plus a native
 DWARF 4 type-layout object. It proves the admitted operations, external functions, resolved thunks, exports, stripped-name
@@ -85,6 +103,17 @@ serialized concurrency, malformed-target rejection, profile identity, and
 process/project cleanup against real Ghidra 12.1.4. Unit fixtures separately
 cover startup deadlines, process exit, queued cancellation, and malformed wire
 output.
+
+On Linux x64 the host lane also runs `verify:ghidra:prototype`, requiring GNU
+`as` and `ld` (selectable with `REA_AS`/`REA_LD`). Its source-owned ELF32
+instruction controls cover conflicting and matching stack inputs/cleanup,
+written slots, conditional pointers, ABI padding, shared epilogues, tail calls
+and EAX overwrite/forwarding. Producer controls use the actual Windows x86
+compiler model and selected ephemeral metadata to reproduce inferred omissions;
+they do not establish Windows-host coverage. Independent CLI/MCP sessions use
+the normal ELF compiler model and compare complete boundaries, residual
+unknowns and retained views. Target instructions never execute and executable
+bytes must remain unchanged.
 
 `npm run verify:ghidra:cross-format` adds AArch64 ELF, x86-64 PE, and x86-64
 Mach-O target coverage. It requires `clang`, LLD, and `lld-link`; set

@@ -93,6 +93,7 @@ export const resolveGhidraAnalysisProfile = (
         annotation_policy: "atomic-function-entry-metadata-v1",
         load_image_observations: "source-mappings-entry-context-v2",
         function_body_evidence: "complete-inclusive-ranges-v1",
+        prototype_consistency_evidence: "bounded-x86-32-listing-pcode-v2",
         function_references: "complete-body-and-entry-reference-manager-v2",
         string_inventory_evidence: "defined-data-coverage-v1",
         location_resolution: "explicit-address-exact-entry-symbol-first-v3",
