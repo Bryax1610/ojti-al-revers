@@ -187,11 +187,18 @@ export const legacyCalleesSchema = z.array(
 );
 
 /** Parsed database lifecycle observations retain explicit ownership information. */
+/** Upstream ida-pro-mcp #551 uses a new UUID4 hex token for every owned open generation. */
+export const idaReleaseIdSchema = z.string().regex(/^[a-f0-9]{32}$/u);
+
 export const openDatabaseSchema = z
   .object({
     success: z.literal(true),
     session: z
-      .object({ session_id: z.string().min(1), input_path: z.string().min(1) })
+      .object({
+        session_id: z.string().min(1),
+        input_path: z.string().min(1),
+        release_id: idaReleaseIdSchema.optional(),
+      })
       .passthrough(),
   })
   .passthrough();
@@ -217,5 +224,20 @@ export const closeDatabaseSchema = z
     saved: z.boolean().nullable().optional(),
     owned: z.boolean(),
     backend: z.enum(["worker", "gui"]),
+  })
+  .passthrough();
+
+/** Verified, terminated owned-worker receipt from ida-pro-mcp PR #551 (not legacy inventory). */
+export const idaWorkerReleaseSchema = z
+  .object({
+    status: z.literal("terminated"),
+    verified: z.literal(true),
+    session_id: z.string().min(1),
+    input_path: z.string().min(1),
+    release_id: idaReleaseIdSchema,
+    backend: z.literal("worker"),
+    owned: z.literal(true),
+    worker_pid: z.number().int().positive(),
+    exit_code: z.number().int(),
   })
   .passthrough();

@@ -1,28 +1,16 @@
-import { z } from "zod";
 import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import {
   closeDatabaseSchema,
-  databaseListSchema,
+  idaWorkerReleaseSchema,
 } from "./IdaProtocolValues.js";
 import { idaFileDigest, sameIdaHostPath } from "./IdaWorkspace.js";
 
 /**
- * Internal trusted-adapter evidence, not an upstream IDA MCP wire schema.
- * A missing release capability never turns absent registry entries into proof.
+ * Consumes ida-pro-mcp #551's real idb_close release receipt.
+ * Legacy upstreams (no idb_open release_id) keep their original close flow;
+ * they cannot recover reaped workers by inventing proof from empty inventory.
  */
-const verifiedWorkerEvidence = z.strictObject({
-  session_id: z.string().min(1),
-  input_path: z.string().min(1),
-  owned: z.literal(true),
-  backend: z.literal("worker"),
-  process_exited: z.literal(true),
-  discovery: z.strictObject({
-    status: z.literal("complete"),
-    sessions: databaseListSchema.shape.sessions,
-  }),
-});
-
 export const closeVerifiedIdaWorker = async (options: {
   readonly connection: IdaMcpConnection;
   readonly database: string;
@@ -30,6 +18,7 @@ export const closeVerifiedIdaWorker = async (options: {
   readonly inputPath: string;
   readonly sha256: string;
   readonly openCompleted: boolean;
+  readonly releaseId?: string | undefined;
 }): Promise<"close-confirmed" | "release-verified"> => {
   const {
     connection,
@@ -38,6 +27,7 @@ export const closeVerifiedIdaWorker = async (options: {
     inputPath,
     sha256,
     openCompleted,
+    releaseId,
   } = options;
   // Reject a foreign session before even sending idb_close to the supervisor.
   // A post-failure release receipt cannot undo an unsafe close request.
@@ -45,42 +35,47 @@ export const closeVerifiedIdaWorker = async (options: {
     throw new AnalysisProtocolError(
       "IDA close refused a session outside its private worker ownership.",
     );
-  try {
-    const closed = closeDatabaseSchema.parse(
-      await connection.call("idb_close", { database, save: false }),
-    );
-    if (
-      closed.session_id !== database ||
-      closed.saved === true ||
-      closed.owned !== true ||
-      closed.backend !== "worker"
-    )
+  if (releaseId !== undefined) {
+    if (!openCompleted)
       throw new AnalysisProtocolError(
-        "IDA database close did not confirm the requested owned, unsaved session release.",
-      );
-    return "close-confirmed";
-  } catch (closeFailure: unknown) {
-    const verify = connection.verifyWorkerRelease;
-    if (!openCompleted || verify === undefined) throw closeFailure;
-    const proof = verifiedWorkerEvidence.parse(
-      await verify.call(connection, { sessionId: database, inputPath }),
-    );
-    if (
-      proof.session_id !== database ||
-      !sameIdaHostPath(proof.input_path, inputPath) ||
-      proof.discovery.sessions.some(
-        (entry) =>
-          entry.session_id === database ||
-          sameIdaHostPath(entry.input_path, inputPath),
-      )
-    )
-      throw new AnalysisProtocolError(
-        "IDA release proof does not identify an exclusively released private worker.",
+        "IDA release proof cannot be requested without a completed owned open.",
       );
     if ((await idaFileDigest(inputPath)) !== sha256)
       throw new AnalysisProtocolError(
-        "IDA private input changed before proven release.",
+        "IDA private input changed before requesting worker release.",
       );
-    return "release-verified";
   }
+  const closed = closeDatabaseSchema.parse(
+    await connection.call("idb_close", {
+      database,
+      save: false,
+      ...(releaseId === undefined
+        ? {}
+        : { expected_input_path: inputPath, release_id: releaseId }),
+    }),
+  );
+  if (
+    closed.session_id !== database ||
+    closed.saved === true ||
+    closed.owned !== true ||
+    closed.backend !== "worker"
+  )
+    throw new AnalysisProtocolError(
+      "IDA database close did not confirm the requested owned, unsaved session release.",
+    );
+  if (releaseId === undefined) return "close-confirmed";
+  const proof = idaWorkerReleaseSchema.parse(closed.release);
+  if (
+    proof.session_id !== database ||
+    proof.release_id !== releaseId ||
+    !sameIdaHostPath(proof.input_path, inputPath)
+  )
+    throw new AnalysisProtocolError(
+      "IDA release receipt does not match this owned worker generation and input.",
+    );
+  if ((await idaFileDigest(inputPath)) !== sha256)
+    throw new AnalysisProtocolError(
+      "IDA private input changed during worker release.",
+    );
+  return "release-verified";
 };

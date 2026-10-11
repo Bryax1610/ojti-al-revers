@@ -722,125 +722,206 @@ describe("headless IDA session ownership and cleanup", () => {
   });
 });
 
-describe("headless IDA reaped worker recovery", () => {
-  const reapedWorker = async () => {
-    const context = await fixture("headless");
-    const { producer, client } = context;
-    expect((await client.execute("health", {})).ok).toBe(true);
-    const sessionId = producer.database;
-    if (sessionId === undefined) throw new Error("Missing worker");
-    const inputPath = producer.inputPath;
-    producer.database = undefined;
-    producer.overrideCall = (name) =>
-      name === "idb_close" ? { error: "Session not found" } : undefined;
-    const proof = () => ({
-      session_id: sessionId,
-      input_path: inputPath,
-      owned: true,
-      backend: "worker",
-      process_exited: true,
-      discovery: { status: "complete", sessions: [] },
-    });
-    return { ...context, sessionId, inputPath, proof };
-  };
+const openGeneration = "123456789abc4def8abc123456789abc";
 
-  it("keeps workspace and connection if reaped worker is absent from ordinary inventory without proof", async () => {
-    const { producer, client, root } = await reapedWorker();
+/** Simulate the actual #551 idb_open and idb_close wire shapes without IDA binaries. */
+const reapedWorker = async (reap = true) => {
+  const context = await fixture("headless");
+  const { producer, client } = context;
+  producer.overrideCall = (name, args) => {
+    if (name !== "idb_open") return undefined;
+    const sessionId = z.string().parse(args.preferred_session_id);
+    const inputPath = z.string().parse(args.input_path);
+    producer.database = sessionId;
+    producer.inputPath = inputPath;
+    return {
+      success: true,
+      session: {
+        session_id: sessionId,
+        input_path: inputPath,
+        release_id: openGeneration,
+      },
+    };
+  };
+  expect((await client.execute("health", {})).ok).toBe(true);
+  const sessionId = producer.database;
+  if (sessionId === undefined) throw new Error("Expected owned session");
+  const inputPath = producer.inputPath;
+  if (reap) producer.database = undefined;
+  const release = (): Record<string, JsonValue> => ({
+    status: "terminated",
+    verified: true,
+    session_id: sessionId,
+    input_path: inputPath,
+    release_id: openGeneration,
+    backend: "worker",
+    owned: true,
+    worker_pid: 4242,
+    exit_code: -9,
+  });
+  const closeResponse = (): Record<string, JsonValue> => ({
+    success: true,
+    session_id: sessionId,
+    saved: null,
+    owned: true,
+    backend: "worker",
+    release: release(),
+  });
+  let response: JsonValue = closeResponse();
+  producer.overrideCall = (name) => {
+    if (name !== "idb_close") return undefined;
+    producer.database = undefined;
+    return response;
+  };
+  const setCloseReply = (payload: JsonValue) => {
+    response = payload;
+  };
+  return {
+    ...context,
+    sessionId,
+    inputPath,
+    release,
+    closeResponse,
+    setCloseReply,
+  };
+};
+
+describe("IDA #551 reaped worker lifecycle", () => {
+  it("does not clear absent session plus empty idb_list when release is unproved", async () => {
+    const { producer, client, root, setCloseReply } = await reapedWorker();
+    setCloseReply({ error: "Worker release unknown" });
     expect((await client.close()).ok).toBe(false);
     expect((await client.close()).ok).toBe(false);
     expect(producer.closes).toBe(0);
-    expect((await readdir(root)).some((x) => x.startsWith("rea-ida-"))).toBe(
-      true,
-    );
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+    ).toBe(true);
+    expect(
+      producer.calls.filter((call) => call.name === "idb_close"),
+    ).toHaveLength(2);
   });
 
-  it("recovers only with independent matching proof and deduplicates concurrent close", async () => {
-    const { producer, client, root, proof, sessionId, inputPath } =
+  it("releases exact reaped worker with idempotent receipt and concurrent callers", async () => {
+    const { producer, client, root, inputPath, sessionId } =
       await reapedWorker();
-    let verifications = 0;
-    Object.assign(producer, {
-      verifyWorkerRelease: async (identity: {
-        sessionId: string;
-        inputPath: string;
-      }) => {
-        expect(identity).toEqual({ sessionId, inputPath });
-        verifications++;
-        return proof();
-      },
-    });
     const closed = await Promise.all([client.close(), client.close()]);
     expect(closed.every((result) => result.ok)).toBe(true);
-    expect(verifications).toBe(1);
     expect(producer.closes).toBe(1);
-    expect(producer.calls.filter((x) => x.name === "idb_close")).toHaveLength(
-      1,
-    );
-    expect(producer.calls.find((x) => x.name === "idb_close")?.args.save).toBe(
-      false,
-    );
+    const requests = producer.calls.filter(({ name }) => name === "idb_close");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.args).toEqual({
+      database: sessionId,
+      save: false,
+      expected_input_path: inputPath,
+      release_id: openGeneration,
+    });
+    expect(producer.calls.some(({ name }) => name === "idb_list")).toBe(true);
     expect(await readdir(root)).toEqual(["target.elf"]);
     expect((await client.close()).ok).toBe(true);
   });
 
-  it("fails closed for foreign, unowned, live or incompletely discovered worker claims", async () => {
-    for (const kind of [
-      "foreign-id",
-      "foreign-input",
-      "unowned",
-      "gui",
-      "alive",
-      "discovery-failed",
-      "still-registered",
-      "missing-exit",
-    ] as const) {
-      const { producer, client, root, proof, sessionId, inputPath } =
-        await reapedWorker();
-      const evidence: Record<string, JsonValue> = proof();
-      if (kind === "foreign-id") evidence.session_id = "foreign";
-      if (kind === "foreign-input") evidence.input_path = inputPath + ".other";
-      if (kind === "unowned") evidence.owned = false;
-      if (kind === "gui") evidence.backend = "gui";
-      if (kind === "alive") evidence.process_exited = false;
-      if (kind === "discovery-failed")
-        evidence.discovery = { status: "failed", sessions: [] };
-      if (kind === "still-registered")
-        evidence.discovery = {
-          status: "complete",
-          sessions: [
-            {
-              session_id: sessionId,
-              input_path: inputPath,
-              owned: true,
-              backend: "worker",
-              is_active: true,
-            },
-          ],
-        };
-      if (kind === "missing-exit") delete evidence.process_exited;
-      Object.assign(producer, { verifyWorkerRelease: async () => evidence });
-      const result = await client.close();
-      expect(result.ok, kind).toBe(false);
-      if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
-      expect(producer.closes, kind).toBe(0);
-      expect(
-        (await readdir(root)).some((x) => x.startsWith("rea-ida-")),
-        kind,
-      ).toBe(true);
+  it("preserves normal #551 live-worker close and save=false", async () => {
+    const { producer, client, root, inputPath, sessionId } =
+      await reapedWorker(false);
+    expect((await client.close()).ok).toBe(true);
+    expect(
+      producer.calls.find(({ name }) => name === "idb_close")?.args,
+    ).toEqual({
+      database: sessionId,
+      save: false,
+      expected_input_path: inputPath,
+      release_id: openGeneration,
+    });
+    expect(producer.closes).toBe(1);
+    expect(await readdir(root)).toEqual(["target.elf"]);
+  });
+
+  it("retains workspace when verified release is followed by explicit discovery error", async () => {
+    const { producer, client, root } = await reapedWorker();
+    let fail = true;
+    producer.overrideCall = ((original) => (name, args) => {
+      if (name === "idb_list" && fail) return { error: "enumeration failed" };
+      return original(name, args);
+    })(producer.overrideCall!);
+    expect((await client.close()).ok).toBe(false);
+    expect(producer.closes).toBe(0);
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+    ).toBe(true);
+    fail = false;
+    expect((await client.close()).ok).toBe(true);
+    expect(
+      producer.calls.filter(({ name }) => name === "idb_close"),
+    ).toHaveLength(1);
+    expect(producer.closes).toBe(1);
+    expect(await readdir(root)).toEqual(["target.elf"]);
+  });
+});
+
+describe("IDA #551 invalid worker release safety", () => {
+  it.each([
+    "missing-release",
+    "false-verification",
+    "unverified-status",
+    "wrong-session",
+    "wrong-input",
+    "wrong-generation",
+    "unowned",
+    "gui",
+    "no-pid",
+    "no-exit",
+    "failed-close",
+    "still-referenced",
+  ] as const)("keeps private resources for %s", async (kind) => {
+    const {
+      producer,
+      client,
+      root,
+      closeResponse,
+      setCloseReply,
+      sessionId,
+      inputPath,
+    } = await reapedWorker();
+    const response = closeResponse();
+    const proof = response.release as Record<string, JsonValue>;
+    if (kind === "missing-release") delete response.release;
+    if (kind === "false-verification") proof.verified = false;
+    if (kind === "unverified-status") proof.status = "pending";
+    if (kind === "wrong-session") proof.session_id = "foreign";
+    if (kind === "wrong-input") proof.input_path = inputPath + ".foreign";
+    if (kind === "wrong-generation")
+      proof.release_id = "fedcba9876544cba8765fedcba987654";
+    if (kind === "unowned") proof.owned = false;
+    if (kind === "gui") proof.backend = "gui";
+    if (kind === "no-pid") delete proof.worker_pid;
+    if (kind === "no-exit") delete proof.exit_code;
+    if (kind === "failed-close") response.success = false;
+    if (kind === "still-referenced") {
+      producer.overrideCall = ((original) => (name, args) => {
+        if (name === "idb_list")
+          return {
+            sessions: [
+              {
+                session_id: sessionId,
+                input_path: inputPath,
+                owned: true,
+                backend: "worker",
+                is_active: true,
+              },
+            ],
+          };
+        return original(name, args);
+      })(producer.overrideCall!);
     }
-  });
-
-  it("uses complete verified discovery even when legacy list is unavailable", async () => {
-    const { producer, client, root, proof } = await reapedWorker();
-    Object.assign(producer, { verifyWorkerRelease: async () => proof() });
-    producer.beforeCall = async (name) => {
-      if (name === "idb_list") throw new Error("Discovery failed");
-    };
-    expect((await client.close()).ok).toBe(true);
-    expect(producer.calls.filter((x) => x.name === "idb_close")).toHaveLength(
-      1,
-    );
-    expect(producer.closes).toBe(1);
-    expect(await readdir(root)).toEqual(["target.elf"]);
+    setCloseReply(response);
+    const result = await client.close();
+    expect(result.ok, kind).toBe(false);
+    if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
+    expect(producer.closes, kind).toBe(0);
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+      kind,
+    ).toBe(true);
   });
 });
 

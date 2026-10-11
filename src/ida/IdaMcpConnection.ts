@@ -19,14 +19,6 @@ export interface IdaMcpConnection {
     name: string,
     args: Readonly<Record<string, JsonValue>>,
   ): Promise<JsonValue>;
-  /**
-   * Optional internal trusted-adapter seam. Production MCP transport must not
-   * implement this until upstream has a documented, verified worker-release
-   * and complete-discovery protocol. Empty idb_list is NEVER release proof.
-   */
-  verifyWorkerRelease?(
-    identity: Readonly<{ sessionId: string; inputPath: string }>,
-  ): Promise<JsonValue>;
   serverInfo(): JsonValue;
   close(): Promise<void>;
 }
