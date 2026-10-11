@@ -68,6 +68,7 @@ export const inspectAnalysisViewValidated = (
   if (!projected.ok) return projected;
   if (
     parent.subject !== null &&
+    projected.value.artifact.sha256 !== null &&
     parent.subject.digest.sha256 !== projected.value.artifact.sha256
   )
     return err(
@@ -176,7 +177,11 @@ const createAnalysisViewEvidence = (
     },
     result: jsonValueSchema.parse(result),
     rawResult: null,
-    confidence: "derived",
+    confidence:
+      result.kind === "api-surface" &&
+      result.groups.some((group) => group.templated_segments.length > 0)
+        ? "inferred"
+        : "derived",
     authority: parent.authority,
     limitations: result.limitations,
     locations: [
