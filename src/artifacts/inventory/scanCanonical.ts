@@ -2,6 +2,7 @@ import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySn
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 
 import { AsarArtifactReader } from "../AsarArtifactReader.js";
+import { hostExecutable } from "../hostExecutable.js";
 
 import { lstat } from "node:fs/promises";
 import type { Stats } from "node:fs";
@@ -211,7 +212,7 @@ const buildInventorySnapshot = async (
   rekeyOccurrences(rootNode.artifact_id, input.occurrences);
   const rootOccurrence = rootOccurrenceFor(rootNode, {
     size: metadata.size,
-    executable: (metadata.mode & 0o111) !== 0,
+    executable: hostExecutable(path, metadata),
     format: rootFormat,
     path,
   });
