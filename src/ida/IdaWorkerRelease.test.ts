@@ -57,6 +57,18 @@ const fixture = async () => {
 };
 
 describe("IDA worker release receipt trust boundary", () => {
+  it("rejects a foreign session before any close request, even if a normal close would acknowledge it", async () => {
+    const { options, calls, connection, proof } = await fixture();
+    connection.verifyWorkerRelease = async () => proof();
+    await expect(
+      closeVerifiedIdaWorker({
+        ...options,
+        database: "foreign-worker",
+      }),
+    ).rejects.toThrow("outside its private worker ownership");
+    expect(calls).toHaveLength(0);
+  });
+
   it("closes only the owned worker with save=false in the normal case", async () => {
     const { options, connection, calls, database } = await fixture();
     connection.call = async (name, args) => {

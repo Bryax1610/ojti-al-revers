@@ -39,6 +39,12 @@ export const closeVerifiedIdaWorker = async (options: {
     sha256,
     openCompleted,
   } = options;
+  // Reject a foreign session before even sending idb_close to the supervisor.
+  // A post-failure release receipt cannot undo an unsafe close request.
+  if (database !== privateSessionId)
+    throw new AnalysisProtocolError(
+      "IDA close refused a session outside its private worker ownership.",
+    );
   try {
     const closed = closeDatabaseSchema.parse(
       await connection.call("idb_close", { database, save: false }),
@@ -60,7 +66,6 @@ export const closeVerifiedIdaWorker = async (options: {
       await verify.call(connection, { sessionId: database, inputPath }),
     );
     if (
-      database !== privateSessionId ||
       proof.session_id !== database ||
       !sameIdaHostPath(proof.input_path, inputPath) ||
       proof.discovery.sessions.some(
