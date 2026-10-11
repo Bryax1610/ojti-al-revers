@@ -1069,7 +1069,10 @@ itWithCaptureCapability(
     expect(JSON.stringify(capture.process_samples)).toContain(
       dirname(processFixture),
     );
-    const { stdout } = await execFileAsync("ps", ["-axo", "command="]);
+    // A busy host's full process table exceeds Node's 1 MiB default buffer.
+    const { stdout } = await execFileAsync("ps", ["-axo", "command="], {
+      maxBuffer: Number.POSITIVE_INFINITY,
+    });
     expect(stdout).not.toContain(`${processFixture} tree-child`);
     expect(stdout).not.toContain(`${processFixture} tree-grandchild`);
   },

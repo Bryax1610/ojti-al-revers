@@ -301,7 +301,7 @@ export class MachOSliceArtifactReader implements ArtifactReader {
   }
 
   async #releaseResources(): Promise<void> {
-    await Promise.allSettled([...this.#pendingCommands]);
+    await Promise.allSettled(this.#pendingCommands);
     let cleanup: ArtifactReaderFailure["cleanup"];
     try {
       const failures = (await this.runner.retryCleanup?.()) ?? [];
@@ -461,8 +461,9 @@ const lipoMatchesSlice = (
 
 /**
  * Newer lipo names an arm64e ABI variant `arm64e.<variant>` (for example
- * `arm64e.v1` for pointer-auth ABI version 1). The FAT table names that slice
- * `arm64e`; its physical identity is still compared field by field.
+ * `arm64e.v1` for pointer-auth ABI version 1, or `arm64e.x1` for
+ * CPU_SUBTYPE_ARM64E_X1). The FAT table names that slice `arm64e`; its
+ * physical identity is still compared field by field.
  */
 const lipoNameMatches = (reported: string, observed: string): boolean =>
   reported === observed ||
