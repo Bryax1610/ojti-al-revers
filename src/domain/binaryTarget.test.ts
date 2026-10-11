@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseExecutableHeader } from "./binaryTarget.js";
+import {
+  parseExecutableHeader,
+  WASM_BINARY_MODULE_REASON,
+} from "./binaryTarget.js";
 import { dosMz, elf, fat, pe, thinMach } from "./binaryTarget.fixture.js";
 
 describe("executable header parsing", () => {
@@ -137,5 +140,12 @@ describe("executable header completeness", () => {
     expect(reason(bytes, 4160)).toBeNull();
     // Only the slice REA would analyze must be present.
     expect(parseExecutableHeader(bytes, "x64", 4100).ok).toBe(true);
+  });
+
+  it("identifies a WebAssembly binary module header instead of an unknown format", () => {
+    const wasm = Buffer.from([
+      0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+    ]);
+    expect(reason(wasm)).toBe(WASM_BINARY_MODULE_REASON);
   });
 });
