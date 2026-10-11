@@ -193,11 +193,13 @@
             is a static analysis target; it does not require Electron to launch.
           </p>
           <p>
-            From a repository checkout, use the released REA version recorded
-            for this run. Save its complete application Evidence before asking
-            the follow-up CLI questions:
+            Run the pinned npm package from a working directory outside the
+            repository checkout. Replace <code>/absolute/path/to/rea</code> with
+            the checkout's absolute path; output JSON files are written to the
+            current directory. This avoids <code>npx</code> resolving a checkout
+            with the same package name and version:
           </p>
-          <pre><code>npx -y rea-agents@6.4.0 analyze-javascript-application ./website/public/examples/notes-electron --json &gt; application-evidence.json
+          <pre><code>npx -y rea-agents@6.4.0 analyze-javascript-application /absolute/path/to/rea/website/public/examples/notes-electron --json &gt; application-evidence.json
 node --input-type=module -e '
 import { readFileSync, writeFileSync } from "node:fs";
 const application = JSON.parse(readFileSync("application-evidence.json", "utf8"));
@@ -215,6 +217,12 @@ writeFileSync("semantic-trace.json", JSON.stringify({
 }));'
 npx -y rea-agents@6.4.0 trace-application-feature ./feature-trace.json --json
 npx -y rea-agents@6.4.0 trace-javascript-semantics ./semantic-trace.json --json</code></pre>
+          <p>
+            To run the checkout's source instead, work from its root after
+            <code>npm ci</code> and <code>npm run build</code>, and use
+            <code>node scripts/rea.mjs</code> in place of each pinned
+            <code>npx</code> command.
+          </p>
           <p>
             The trace connects the renderer, preload bridge, literal
             <code>notes:export</code> channel and main-process handler. On the
@@ -279,13 +287,19 @@ npm run verify:fixtures</code></pre>
           </p>
           <pre><code>node scripts/rea.mjs search build/conformance/c "REA_C_ENTRY" --provider ghidra --json
 node scripts/rea.mjs function build/conformance/c rea_entry --provider ghidra --json
+node scripts/rea.mjs function build/conformance/c rea_branch --provider ghidra --json
 node scripts/rea.mjs xrefs build/conformance/c rea_entry --provider ghidra --json</code></pre>
           <p>
-            In MCP, open that binary, search for the marker and procedures,
-            inspect <code>rea_entry</code>, follow its references, then call
-            <code>close_binary</code>. The MCP lifecycle must report successful
-            cleanup. The CLI commands use separate processes and release their
-            own analysis resources when each command exits.
+            The <code>rea_branch</code> query shows the next call to
+            <code>rea_leaf</code>. CLI <code>xrefs</code> accepts a symbol name
+            and resolves it to an address; the MCP operation takes an address
+            (Ghidra requires it explicitly). In MCP, open the binary, search for
+            the marker and procedures, inspect <code>rea_entry</code> and
+            <code>rea_branch</code>, pass the resolved address to
+            <code>xrefs</code>, then call <code>close_binary</code>. The MCP
+            lifecycle must report successful cleanup. The CLI commands use
+            separate processes and release their own analysis resources when
+            each command exits.
           </p>
           <p>
             This Windows host has no configured Ghidra, IDA or Hopper provider,

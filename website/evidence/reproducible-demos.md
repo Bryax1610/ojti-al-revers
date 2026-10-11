@@ -18,7 +18,13 @@ agent evidence. The verifier runs are not recordings or resource benchmarks.
   `ev_3ece6d552f75f7d4ecb4e303e12703dec3a966a1d479fd1c3aad4685dce68b5e`.
 - Public CLI semantic trace Evidence ID for property `invoke`:
   `ev_68c6438a3907198bd130fe5b7fd7fb201372dbd1ab80311a4fd131e97210b6f8`.
-- Root artifact SHA-256: `3c11d59338104ba96399bfd05bebf4359ac6a293f49d2b095566456842f4396e`.
+- Root artifact SHA-256 for the recorded Windows CRLF bytes:
+  `3c11d59338104ba96399bfd05bebf4359ac6a293f49d2b095566456842f4396e`.
+- A Linux checkout with LF line endings gives
+  `0ee325d4eaf7f94b62b2962044995fe1efe9f1d31411eb035118b19b1f56f7bb` for the
+  same six files; the graph remains 29 nodes and 42 edges. These hashes identify
+  exact bytes, so the line-ending difference is expected. Evidence IDs also
+  include checkout paths and may differ between runs.
 - The analyzer parsed all six source files. Its application graph had 29 nodes
   and 42 edges. `trace_application_feature` for the exact
   `notes:export` seed returned complete coverage of 29 nodes and 42 edges.
@@ -33,10 +39,13 @@ agent evidence. The verifier runs are not recordings or resource benchmarks.
   account. Its temporary target, auth file and report were removed. Agent
   routing, answer quality and transcript citations therefore remain
   unverified.
-- Public reproduction: run the pinned `npx rea-agents@6.4.0` commands on the
-  demo page. The evidence in this record was separately rerun from the source
-  checkout; that Windows run required the matching native artifact. The fixture
-  and its published source digests are recorded in
+- Public reproduction: run the pinned `npx rea-agents@6.4.0` commands from
+  outside the repository checkout, using an absolute fixture path as shown on
+  the demo page. For a source-checkout run, use `node scripts/rea.mjs` from the
+  repository root after `npm ci` and `npm run build`. The evidence in this
+  record was separately rerun from the source checkout; that Windows run
+  required the matching native artifact. The fixture and its published source
+  digests are recorded in
   [`guide-examples.md`](guide-examples.md).
 
 ## D02 · Native function
