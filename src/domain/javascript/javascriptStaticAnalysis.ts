@@ -48,6 +48,7 @@ import {
 } from "./javascriptSourceParser.js";
 
 import { createJavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
+import { classifyParsedJavaScriptViteDependencyTablesSteps } from "./javascriptViteDependencies.js";
 
 /** Parse one JavaScript artifact and recover static structure only. */
 export const analyzeJavaScriptStaticSource = (
@@ -83,11 +84,14 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   const electronBindings =
     yield* classifyParsedJavaScriptElectronBindingsSteps(file);
   const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
+  const viteDependencyTables =
+    yield* classifyParsedJavaScriptViteDependencyTablesSteps(file);
   yield* traverseStaticSourceSteps(file, {
     source,
     accumulator,
     ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
     electronBindings,
+    viteDependencyTables,
     rpcScan: createJavaScriptRpcScan(source, clientRoots),
   });
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
@@ -200,10 +204,10 @@ const inspectNode = (
   if (t.isCallExpression(node)) {
     inspectBundlerRegistration(source, node, accumulator);
     inspectEsbuildWrapper(source, node, accumulator);
-    inspectCall(source, node, findings);
+    inspectCall(node, findings);
   } else if (t.isOptionalCallExpression(node)) {
-    inspectCall(source, node, findings);
-  } else if (t.isNewExpression(node)) inspectCall(source, node, findings);
+    inspectCall(node, findings);
+  } else if (t.isNewExpression(node)) inspectCall(node, findings);
   if (
     (t.isImportDeclaration(node) || t.isExportAllDeclaration(node)) &&
     node.source !== undefined

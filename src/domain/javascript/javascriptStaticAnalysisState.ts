@@ -1,5 +1,6 @@
 import type * as t from "@babel/types";
 import type { JavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
+import type { JavaScriptViteDependencyTable } from "./javascriptViteDependencies.js";
 
 import type {
   JavaScriptBundlerRegistration,
@@ -72,6 +73,11 @@ export interface JavaScriptFindingContext {
   >;
   /** Proven Electron export path segments by root offset. */
   readonly electronBindings?: ReadonlyMap<number, readonly string[]>;
+  /** emitted Vite dependency tables by call offset, with overwritten caches unknown. */
+  readonly viteDependencyTables?: ReadonlyMap<
+    number,
+    JavaScriptViteDependencyTable | null
+  >;
 }
 
 /** Candidate import, require, worker, or service-worker reference. */

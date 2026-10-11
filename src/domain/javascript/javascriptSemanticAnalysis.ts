@@ -120,6 +120,15 @@ export const analyzeParsedJavaScriptReferences = (
   return collectSemanticReferences(file.program, state, name);
 };
 
+/** collect lexical ownership without running value or provenance evaluation. */
+export function* collectParsedJavaScriptLexicalStateSteps(
+  file: Pick<ParsedJavaScriptSource, "program">,
+): Generator<void, JavaScriptSemanticAnalysisState> {
+  const state = createState(file.program);
+  yield* collectDefinitionsSteps(file.program, state);
+  return state;
+}
+
 /** Recover semantics from an already parsed JavaScript artifact. */
 export const analyzeParsedJavaScriptSemantics = (
   file: ParsedJavaScriptSource,

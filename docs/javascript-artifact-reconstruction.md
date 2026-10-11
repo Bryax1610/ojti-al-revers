@@ -260,6 +260,12 @@ while locally shadowed receivers can still contribute network endpoint
 candidates. A template recovered with a parser error and no cooked value stays
 dynamic; its raw spelling is not treated as a valid JavaScript string.
 
+Vite `__vite__mapDeps` dependency tables use decoded JavaScript string values,
+so an escaped path such as `caf\u00e9.js` resolves to `café.js`. array positions
+are preserved when entries are dynamic or missing; a spread of unknown length
+makes subsequent indexes unknown. calls use their own lexical helper binding,
+and unresolved dependencies retain the call expression and source evidence.
+
 RPC client syntax also contributes network endpoint candidates, in both
 `analyze_javascript_application` and `analyze_web_bundle`, distinguished by
 `mechanism`:

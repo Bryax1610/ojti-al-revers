@@ -34,7 +34,6 @@ type JavaScriptCallLike =
 
 /** Inspect one call or new expression for references, endpoints, storage, and roles. */
 export const inspectCall = (
-  source: string,
   node: JavaScriptCallLike,
   context: FindingContext,
 ): void => {
@@ -57,8 +56,10 @@ export const inspectCall = (
       kind: "dynamic-import",
       specifier: chunkLoad.specifier,
     });
-  for (const specifier of vitePreloadDependencySpecifiers(source, node, name))
+  for (const specifier of vitePreloadDependencySpecifiers(node, context)) {
+    if (specifier === undefined) accumulator.unknownFindings += 1;
     addReference(context, { node, kind: "dynamic-import", specifier });
+  }
   if (name === "Worker" || name.endsWith(".Worker"))
     addReference(context, { node, kind: "worker", specifier: first });
   if (name.endsWith("serviceWorker.register"))
@@ -145,28 +146,29 @@ const chunkLoadSpecifier = (
 };
 
 const vitePreloadDependencySpecifiers = (
-  source: string,
   node: JavaScriptCallLike,
-  name: string,
-): readonly string[] => {
-  if (name !== "__vite__mapDeps" || !t.isArrayExpression(node.arguments[0]))
-    return [];
-  const indexes = node.arguments[0].elements.flatMap((element) =>
-    t.isNumericLiteral(element) ? [element.value] : [],
-  );
-  if (indexes.length !== node.arguments[0].elements.length) return [];
-  const table = vitePreloadDependencyTable(source);
-  return indexes.flatMap((index) => table[index] ?? []);
-};
-
-const vitePreloadDependencyTable = (source: string): readonly string[] => {
-  const match =
-    /\.\s*f\s*\|\|\s*\(\s*[^)]*?\.f\s*=\s*\[([\s\S]*?)\]\s*\)/u.exec(source);
-  const body = match?.[1];
-  if (body === undefined) return [];
-  return [
-    ...body.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'/gu),
-  ].map((literal) => literal[1] ?? literal[2] ?? "");
+  context: FindingContext,
+): readonly (string | undefined)[] => {
+  const tables = context.viteDependencyTables;
+  if (!tables?.has(node.start ?? -1)) return [];
+  const table = tables.get(node.start ?? -1);
+  const indexes = node.arguments[0];
+  if (
+    table == null ||
+    node.arguments.length !== 1 ||
+    !t.isArrayExpression(indexes)
+  )
+    return [undefined];
+  return indexes.elements.flatMap((index) => {
+    if (index === null) return [];
+    return [
+      t.isNumericLiteral(index) &&
+      Number.isSafeInteger(index.value) &&
+      index.value >= 0
+        ? table[index.value]
+        : undefined,
+    ];
+  });
 };
 
 const inspectEndpointCall = (
