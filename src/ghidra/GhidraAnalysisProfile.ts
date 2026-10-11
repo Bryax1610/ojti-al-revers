@@ -32,6 +32,7 @@ export const resolveGhidraAnalysisProfile = (
   installation: GhidraInstallationInspection,
   signal?: AbortSignal,
   languageOverride?: GhidraLanguageOverride,
+  disabledAnalyzers?: readonly string[],
 ): Promise<Result<AnalysisProfileResolution, AnalysisError>> => {
   if (signal?.aborted === true)
     return Promise.resolve(err(new AnalysisCancelledError("open_binary")));
@@ -149,7 +150,17 @@ export const resolveGhidraAnalysisProfile = (
               entry_seed: "external-entry-and-function-before-analysis-v1",
             }
           : {}),
-        analyzer_preset: "ghidra-default",
+        analyzer_preset:
+          disabledAnalyzers === undefined || disabledAnalyzers.length === 0
+            ? "ghidra-default"
+            : `ghidra-default+disabled:${disabledAnalyzers.join(",")}`,
+        ...(disabledAnalyzers === undefined || disabledAnalyzers.length === 0
+          ? {}
+          : {
+              analysis_options: {
+                disabled_analyzers: [...disabledAnalyzers],
+              },
+            }),
         ...ghidraMipsProfileParameters(target),
       }),
     }),
@@ -177,3 +188,26 @@ export const sameGhidraLanguageOverride = (
 ): boolean =>
   left?.languageId === right?.languageId &&
   left?.compilerSpecId === right?.compilerSpecId;
+
+/** Read the analyzer-option commitment back from a resolved profile. */
+export const ghidraProfileDisabledAnalyzers = (
+  parameters: Readonly<Record<string, unknown>>,
+): readonly string[] | undefined => {
+  const options = parameters.analysis_options;
+  if (typeof options !== "object" || options === null) return undefined;
+  const disabled = (options as Record<string, unknown>).disabled_analyzers;
+  if (!Array.isArray(disabled)) return undefined;
+  return disabled.every((name) => typeof name === "string")
+    ? (disabled as readonly string[])
+    : undefined;
+};
+
+/** Whether a committed profile and the active configuration disable the same analyzers. */
+export const sameGhidraDisabledAnalyzers = (
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean =>
+  left === undefined || right === undefined
+    ? left === right
+    : left.length === right.length &&
+      left.every((name, index) => name === right[index]);

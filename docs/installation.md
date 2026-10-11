@@ -753,6 +753,22 @@ Each line is `address<TAB>kind[<TAB>name]`, where kind is `function`, `code` or 
 
 Label seeds can name mapped uninitialized storage such as `.bss`; function and code seeds require initialized bytes.
 
+To skip a named Ghidra auto-analyzer (for example, when default auto-analysis
+stalls in one analyzer on a Swift/Objective-C arm64 Mach-O):
+
+```bash
+export REA_GHIDRA_DISABLED_ANALYZERS="Objective-C Message Analyzer"
+```
+
+The value is a comma-separated list of exact Ghidra analyzer names. A pre-script
+disables each name before auto-analysis, the analysis profile records the
+override in `analyzer_preset` (for example
+`ghidra-default+disabled:Objective-C Message Analyzer`), and a session fails to
+open when its committed profile and the setting differ. A name starts with a
+letter or digit and contains only letters, digits, spaces, periods, underscores,
+and hyphens; at most 32 names are admitted, each at most 120 characters.
+Disabling an analyzer skips the facts it would have produced.
+
 ### Ghidra heap and CPU controls
 
 Set resource controls in the environment that launches the CLI or MCP server,
