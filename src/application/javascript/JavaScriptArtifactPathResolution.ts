@@ -138,9 +138,7 @@ const contextualCandidate = (
 ): string | CandidateResolution => {
   const { context } = input;
   let declared =
-    context === "html-reference" ||
-    context === "url-reference" ||
-    (context === "module-specifier" && input.moduleKind !== "require")
+    context === "html-reference" || context === "url-reference"
       ? stripQueryAndFragment(input.declaredPath)
       : input.declaredPath;
   if (context === "html-reference") return htmlCandidate(input);
@@ -154,7 +152,7 @@ const contextualCandidate = (
     if (!declared.startsWith(".") && !declared.startsWith("/"))
       return bareModuleCandidate(input, declared);
     if (input.moduleKind !== "require") {
-      const decoded = decodeModuleUrlPath(declared);
+      const decoded = decodeModuleUrlPath(stripQueryAndFragment(declared));
       if (typeof decoded !== "string") return decoded;
       declared = decoded;
     }
