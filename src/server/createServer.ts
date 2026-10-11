@@ -93,6 +93,15 @@ import {
   type ServerAnalysisSource,
 } from "./analysisAdmission.js";
 import type { WithAdmittedAnalysis } from "./analysisAdmission.js";
+import { createReverseEngineeringService } from "../composition/reverseEngineering.js";
+import { registerReverseEngineeringTools } from "./registerReverseEngineeringTools.js";
+import { GdbSessionManager } from "../gdb/GdbSessionManager.js";
+import { registerGdbTools } from "./registerGdbTools.js";
+import { RizinDebugSessionManager } from "../rizin/RizinDebugSessionManager.js";
+import { registerRizinDebugTools } from "./registerRizinDebugTools.js";
+import { CutterBridgeService } from "../cutter/CutterBridgeService.js";
+import { CutterBridgeClient } from "../cutter/CutterBridgeClient.js";
+import { registerCutterTools } from "./registerCutterTools.js";
 
 const TARGET_FREE_INSTRUCTIONS =
   "REA provides reverse-engineering tools for local artifacts, native binaries, managed code, browser pages, and runtimes. Use the tool that directly answers the question; discover targets or inspect inventory only when needed. Tool results include inline Evidence and report their coverage and limitations.";
@@ -103,6 +112,7 @@ const ACTIVE_TARGET_INSTRUCTIONS =
 export interface CreateServerOptions {
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
   readonly delivery?: ToolResultDelivery;
+  readonly providerEnvironment?: Readonly<NodeJS.ProcessEnv>;
   readonly evmInterface?: EvmInterfaceService;
   readonly logger?: Logger;
   readonly binaryLayout?: BinaryLayoutService;
@@ -251,6 +261,8 @@ export const createServer = (
       artifactResources.close(),
       firmwareAnalysis.close(),
       options.browserScenarioCapture?.close?.() ?? Promise.resolve(),
+      gdbSessions.closeAll(),
+      rizinDebugSessions.closeAll(),
     ])
       .then((results) => {
         const failures = results.flatMap((result) =>
@@ -292,6 +304,52 @@ export const createServer = (
     artifactResources,
   };
   registerBinaryAnalysisTools(toolContext);
+  registerReverseEngineeringTools(
+    server,
+    createReverseEngineeringService(options.providerEnvironment),
+    toolLogger,
+    delivery,
+    session === undefined
+      ? undefined
+      : (evidence) => session.recordEvidence(evidence),
+  );
+  const gdbSessions = new GdbSessionManager(
+    options.providerEnvironment === undefined
+      ? {}
+      : { environment: options.providerEnvironment },
+  );
+  const rizinDebugSessions = new RizinDebugSessionManager(
+    options.providerEnvironment,
+  );
+  registerGdbTools(
+    server,
+    gdbSessions,
+    toolLogger,
+    delivery,
+    session === undefined
+      ? undefined
+      : (evidence) => session.recordEvidence(evidence),
+  );
+  registerRizinDebugTools(
+    server,
+    rizinDebugSessions,
+    toolLogger,
+    delivery,
+    session === undefined
+      ? undefined
+      : (evidence) => session.recordEvidence(evidence),
+  );
+  registerCutterTools(
+    server,
+    new CutterBridgeService(
+      new CutterBridgeClient(options.providerEnvironment),
+    ),
+    toolLogger,
+    delivery,
+    session === undefined
+      ? undefined
+      : (evidence) => session.recordEvidence(evidence),
+  );
   const previousOnclose = server.server.onclose;
   server.server.onclose = () => {
     previousOnclose?.();

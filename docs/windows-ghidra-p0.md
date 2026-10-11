@@ -21,8 +21,12 @@ additional permission flag or degraded mode is required.
 - the 25 read-only Ghidra inventory, memory, and function-analysis operations.
 
 Loaded memory reads and file offsets preserve Ghidra's observed source mappings.
-PE load-image inspection returns an explicit unsupported attestation status;
-independent load-image verification currently supports DOS MZ only. For x64 PE
+PE load-image inspection returns measurements with an explicit unsupported
+attestation status. Independent DOS verification supports DOS MZ and explicitly
+selected DOS COM targets on Linux x64 and macOS arm64, outside this Windows P0
+boundary. macOS x64 remains unverified. See [DOS analysis](ghidra-dos.md) for
+the COM workflow.
+The Windows load-image verifier supports DOS MZ only. For x64 PE
 NativeAOT RTR 9.1, the read-only snapshot parser can report metadata through
 `inspect_native_load_image` and `inspect_native_data_type` without a JAR or
 database mutation. A real Windows-host NativeAOT Ghidra run is still required
