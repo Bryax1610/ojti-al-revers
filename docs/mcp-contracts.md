@@ -21,7 +21,44 @@ supplies identity.
 `tools/list` returns the complete canonical tool inventory, including tools that
 are currently unavailable. Opening or closing a target or observing a provider
 health transition leaves that catalog unchanged and does not emit
-`notifications/tools/list_changed`.
+`notifications/tools/list_changed`. An operator tool selection (below) is the
+only setting that narrows this inventory.
+
+### Operator tool selection
+
+Three startup environment variables narrow the registered inventory. With none
+set, every public tool is registered. A deselected tool is removed before any
+client connects: it is not advertised by `tools/list`, `tools/call` rejects it
+as an unknown tool without reaching its handler, `binary_session` omits it from
+`tool_availability`, and `rea mcp doctor` expects the same selected inventory.
+
+| Variable               | Value                                                                                                                                                             | Effect                                                                                                                                                                                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REA_MCP_TOOLSETS`     | Comma-separated toolsets: `core`, `process`, `native`, `artifacts`, `evm`, `managed`, `android`, `firmware`, `web`, `javascript`                                  | Registers only the listed toolsets. `core` (session, target lifecycle, unknowns, Evidence bundles, `inspect_analysis_view` and reconstruction accounting) is always retained. `process` holds process capture, which runs caller-supplied commands. |
+| `REA_MCP_DENY_EFFECTS` | Comma-separated declared effects: `mutatesTarget`, `mutatesSession`, `writesFilesystem`, `launchesProcess`, `accessesNetwork`, `changesUiState`, `mayDiscardData` | Removes every tool whose declared effects include one of them. A tool without declared effects is removed while any effect is denied.                                                                                                               |
+| `REA_MCP_DENY_TOOLS`   | Comma-separated public tool names                                                                                                                                 | Removes the named tools. Unknown names are rejected so a misspelled denial never leaves a tool registered.                                                                                                                                          |
+
+Toolsets apply first, then denied effects, then denied tools. Empty items and
+unknown values are configuration errors: the server exits at startup with a
+message naming the setting.
+
+For example, a web-feature investigation workspace without process capture,
+Electron automation, native UI capture or Android device control can use:
+
+```text
+REA_MCP_TOOLSETS=web,javascript,artifacts
+REA_MCP_DENY_TOOLS=capture_electron_scenario
+```
+
+That selection still registers `capture_browser_scenario`, which drives an
+operator-supplied browser, and `observe_web_execution`, which instruments the
+attached page; add `REA_MCP_DENY_EFFECTS=mutatesTarget` to remove both. Several
+remaining static tools launch REA's own bounded helper processes
+(`launchesProcess`), and `open_binary` in `core` starts the configured native
+provider. Denying `launchesProcess` removes all of them.
+
+Selection limits which tools a model can request; it does not sandbox the
+remaining tools. Guided prompts that name a removed tool remain listed.
 
 Advertised input and output schemas contain no reachable recursive references.
 Schemas share repeated definitions through schema-local references while

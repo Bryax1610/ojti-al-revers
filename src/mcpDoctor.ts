@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { CATALOG_IDENTITY } from "./catalogIdentity.js";
 import { PROMPT_CONTRACTS } from "./contracts/promptContracts.js";
 import { TOOL_CONTRACTS } from "./contracts/toolContracts.js";
+import { parseMcpToolSelection } from "./config/mcpToolSelection.js";
 import { err, ok } from "./domain/result.js";
 import { PRODUCT_IDENTITY } from "./identity.js";
 import { MCP_STARTUP_POLICY } from "./mcpStartupPolicy.js";
@@ -100,6 +101,7 @@ export const runProductionMcpDoctor = async (options: McpDoctorOptions) => {
         client,
         deadline,
         controller.signal,
+        expectedToolNames(options.environment),
       )),
       diagnostics: stderr.value(),
     };
@@ -126,10 +128,25 @@ export const runProductionMcpDoctor = async (options: McpDoctorOptions) => {
   }
 };
 
+/**
+ * The tools the child should register under the inherited operator tool
+ * selection. An invalid selection keeps the complete inventory as the
+ * expectation; the child rejects that configuration itself.
+ */
+const expectedToolNames = (
+  environment: Readonly<Record<string, string | undefined>>,
+): readonly string[] => {
+  const selection = parseMcpToolSelection(environment);
+  return TOOL_CONTRACTS.map(({ name }) => name).filter(
+    (name) => !selection.ok || selection.value(name),
+  );
+};
+
 const inspectProductionMcpSession = async (
   client: Client,
   deadline: number,
   signal: AbortSignal,
+  expectedTools: readonly string[],
 ) => {
   const request = requestOptions(deadline, signal);
   const [tools, prompts] = await Promise.all([
@@ -150,7 +167,7 @@ const inspectProductionMcpSession = async (
     );
   const inventory = {
     tools: compareInventory(
-      TOOL_CONTRACTS.map(({ name }) => name),
+      expectedTools,
       tools.tools.map(({ name }) => name),
     ),
     prompts: compareInventory(

@@ -23,6 +23,27 @@ describe("runtime configuration", () => {
     }
   });
 
+  it("rejects an invalid MCP tool selection before the server starts", () => {
+    for (const environment of [
+      { REA_MCP_TOOLSETS: "browser" },
+      { REA_MCP_DENY_EFFECTS: "readOnly" },
+      { REA_MCP_DENY_TOOLS: "capture_browser_scenaro" },
+    ]) {
+      const result = parseConfig(environment);
+      if (result.ok) throw new Error("Expected an invalid tool selection");
+      expect(projectAnalysisError(result.error).message).toContain(
+        Object.keys(environment)[0],
+      );
+    }
+    expect(
+      parseConfig({
+        REA_MCP_TOOLSETS: "web,javascript",
+        REA_MCP_DENY_EFFECTS: "mutatesTarget",
+        REA_MCP_DENY_TOOLS: "capture_electron_scenario",
+      }).ok,
+    ).toBe(true);
+  });
+
   it("parses one shared provider selector and rejects unstable IDs", () => {
     expect(
       parseConfig({

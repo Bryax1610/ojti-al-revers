@@ -5,6 +5,7 @@ import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { parseEnvironment } from "./environment.js";
 import { homeDirectoryFromEnvironment } from "./homeDirectory.js";
+import { parseMcpToolSelection } from "./mcpToolSelection.js";
 import { parseStringArray, parseLoaderArgs } from "./parsers.js";
 import type { AppConfig } from "./types.js";
 
@@ -38,6 +39,10 @@ export const parseConfig = (
 ): Result<AppConfig, ConfigurationError> => {
   const parsed = parseEnvironment(environment);
   if (!parsed.ok) return parsed;
+  // Validate the MCP tool selection at startup so an invalid value names its
+  // setting instead of surfacing later as a lost MCP connection.
+  const toolSelection = parseMcpToolSelection(environment);
+  if (!toolSelection.ok) return toolSelection;
   const env = parsed.value;
   const loaderArgs = parseLoaderArgs(env.HOPPER_LOADER_ARGS_JSON);
   if (!loaderArgs.ok) return loaderArgs;

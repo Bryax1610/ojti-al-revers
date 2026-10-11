@@ -21,6 +21,10 @@ import {
 } from "./toolResult.js";
 import { parseMcpResponseBudget } from "../config/mcpResponseBudget.js";
 import {
+  parseMcpToolSelection,
+  type McpToolSelection,
+} from "../config/mcpToolSelection.js";
+import {
   COMPACT_INPUT_SCHEMA_BUDGET_BYTES,
   parseMcpInputSchemaProfile,
 } from "../config/mcpInputSchemaProfile.js";
@@ -179,6 +183,7 @@ const createMcpServer = (
   session: BinarySessionPort | undefined,
   delivery: ToolResultDelivery,
   compactPresentation: CompactInputSchemaPresentation | undefined,
+  toolSelection: McpToolSelection,
 ): EvidenceMcpServer =>
   new EvidenceMcpServer(
     {
@@ -197,6 +202,7 @@ const createMcpServer = (
       : (evidence) => session.recordEvidence(evidence),
     delivery,
     compactPresentation,
+    toolSelection,
   );
 
 /**
@@ -236,6 +242,7 @@ export const createServer = (
     session,
     delivery,
     selectCompactInputSchemaPresentation(environment),
+    selectToolSelection(environment),
   );
   const android =
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
@@ -377,6 +384,14 @@ const selectCompactInputSchemaPresentation = (
   return configured.value === "compact"
     ? { budgetBytes: COMPACT_INPUT_SCHEMA_BUDGET_BYTES }
     : undefined;
+};
+
+const selectToolSelection = (
+  environment: Readonly<NodeJS.ProcessEnv>,
+): McpToolSelection => {
+  const configured = parseMcpToolSelection(environment);
+  if (!configured.ok) throw configured.error;
+  return configured.value;
 };
 
 const registerConfiguredAnalysisTools = (
