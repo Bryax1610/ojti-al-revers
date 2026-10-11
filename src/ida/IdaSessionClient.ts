@@ -29,7 +29,6 @@ import {
   type IdaOperation,
 } from "./IdaProviderCapabilities.js";
 import {
-  databaseListSchema,
   legacyMetadataSchema,
   modernHealthSchema,
   openDatabaseSchema,
@@ -40,7 +39,10 @@ import {
   sameIdaHostPath,
 } from "./IdaWorkspace.js";
 import { parseIdaInput } from "./IdaInput.js";
-import { closeVerifiedIdaWorker } from "./IdaWorkerRelease.js";
+import {
+  closeVerifiedIdaWorker,
+  readIdaSessionInventory,
+} from "./IdaWorkerRelease.js";
 
 const legacyTools = [
   "get_metadata",
@@ -328,8 +330,9 @@ export class IdaSessionClient implements AnalysisClient {
       // even if the first inventory read fails or the supervisor reaps it.
       if (this.#releaseId !== undefined)
         this.#database = opened.session.session_id;
-      const inventory = databaseListSchema.parse(
-        await this.connection.call("idb_list", {}),
+      const inventory = await readIdaSessionInventory(
+        this.connection,
+        this.#releaseId,
       );
       this.#lifecycle.push(jsonValueSchema.parse(inventory));
       const entry = inventory.sessions.find(
@@ -421,8 +424,9 @@ export class IdaSessionClient implements AnalysisClient {
     try {
       if (this.#workspace !== undefined && this.#openAttempted) {
         if (this.#database === undefined) {
-          const inventory = databaseListSchema.parse(
-            await this.connection.call("idb_list", {}),
+          const inventory = await readIdaSessionInventory(
+            this.connection,
+            this.#releaseId,
           );
           const workspace = this.#workspace;
           this.#database = inventory.sessions.find(
@@ -441,6 +445,10 @@ export class IdaSessionClient implements AnalysisClient {
             throw new AnalysisProtocolError(
               "An unowned worker still uses the private workspace; it was retained.",
             );
+          if (this.#database === undefined)
+            throw new AnalysisProtocolError(
+              "IDA worker release could not be verified; an empty session inventory does not prove a private worker has exited.",
+            );
         }
         if (this.#database !== undefined) {
           if (!this.#databaseCloseAcknowledged) {
@@ -455,8 +463,9 @@ export class IdaSessionClient implements AnalysisClient {
             });
             this.#databaseCloseAcknowledged = true;
           }
-          const inventory = databaseListSchema.parse(
-            await this.connection.call("idb_list", {}),
+          const inventory = await readIdaSessionInventory(
+            this.connection,
+            this.#releaseId,
           );
           if (
             inventory.sessions.some(

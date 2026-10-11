@@ -815,7 +815,12 @@ describe("IDA #551 reaped worker lifecycle", () => {
       expected_input_path: inputPath,
       release_id: openGeneration,
     });
-    expect(producer.calls.some(({ name }) => name === "idb_list")).toBe(true);
+    expect(
+      producer.calls.some(
+        ({ name, args }) =>
+          name === "idb_list" && args.strict_discovery === true,
+      ),
+    ).toBe(true);
     expect(await readdir(root)).toEqual(["target.elf"]);
     expect((await client.close()).ok).toBe(true);
   });
@@ -872,6 +877,9 @@ describe("IDA #551 invalid worker release safety", () => {
     "no-exit",
     "failed-close",
     "still-referenced",
+    "incomplete-scan",
+    "missing-scan-proof",
+    "wrong-scan-count",
   ] as const)("keeps private resources for %s", async (kind) => {
     const {
       producer,
@@ -896,20 +904,35 @@ describe("IDA #551 invalid worker release safety", () => {
     if (kind === "no-pid") delete proof.worker_pid;
     if (kind === "no-exit") delete proof.exit_code;
     if (kind === "failed-close") response.success = false;
-    if (kind === "still-referenced") {
+    if (
+      kind === "still-referenced" ||
+      kind === "incomplete-scan" ||
+      kind === "missing-scan-proof" ||
+      kind === "wrong-scan-count"
+    ) {
       producer.overrideCall = ((original) => (name, args) => {
         if (name === "idb_list")
-          return {
-            sessions: [
-              {
-                session_id: sessionId,
-                input_path: inputPath,
-                owned: true,
-                backend: "worker",
-                is_active: true,
-              },
-            ],
-          };
+          return kind === "still-referenced"
+            ? {
+                sessions: [
+                  {
+                    session_id: sessionId,
+                    input_path: inputPath,
+                    owned: true,
+                    backend: "worker",
+                    is_active: true,
+                  },
+                ],
+                count: 1,
+                registry_scan_complete: true,
+              }
+            : {
+                sessions: [],
+                count: kind === "wrong-scan-count" ? 1 : 0,
+                ...(kind === "missing-scan-proof"
+                  ? {}
+                  : { registry_scan_complete: kind !== "incomplete-scan" }),
+              };
         return original(name, args);
       })(producer.overrideCall!);
     }
@@ -969,7 +992,7 @@ describe("headless IDA cleanup verification", () => {
     ).toHaveLength(1);
     expect(await readdir(root)).toEqual(["target.elf"]);
   });
-  it("never closes an unrelated database when startup returns a different input identity", async () => {
+  it("retains the private workspace when startup returns a different input identity", async () => {
     const { producer, client, root } = await fixture("headless");
     producer.overrideCall = (name) =>
       name === "idb_open"
@@ -982,9 +1005,13 @@ describe("headless IDA cleanup verification", () => {
           }
         : undefined;
     expect((await client.execute("health", {})).ok).toBe(false);
-    expect((await client.close()).ok).toBe(true);
+    const closed = await client.close();
+    expect(closed.ok).toBe(false);
+    if (!closed.ok) expect(closed.error.cleanupIncomplete).toBe(true);
     expect(producer.calls.some(({ name }) => name === "idb_close")).toBe(false);
-    expect(await readdir(root)).toEqual(["target.elf"]);
+    expect(
+      (await readdir(root)).some((name) => name.startsWith("rea-ida-")),
+    ).toBe(true);
   });
   it("releases a privately owned worker after malformed open output using verified session inventory", async () => {
     const { producer, client, root } = await fixture("headless");

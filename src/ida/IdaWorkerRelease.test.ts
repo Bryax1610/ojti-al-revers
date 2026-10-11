@@ -3,9 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { JsonValue } from "../domain/jsonValue.js";
+import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
-import { closeVerifiedIdaWorker } from "./IdaWorkerRelease.js";
+import {
+  closeVerifiedIdaWorker,
+  readIdaSessionInventory,
+} from "./IdaWorkerRelease.js";
 
 const releaseId = "123456789abc4def8abc123456789abc";
 const roots: string[] = [];
@@ -219,4 +222,51 @@ describe("IDA PR #551 fail-closed receipt validation", () => {
       "changed during",
     );
   });
+});
+
+describe("IDA PR #551 strict registry discovery", () => {
+  it("requests a complete scan for a token-backed worker", async () => {
+    const { connection, reply, calls } = await fixture();
+    reply({ sessions: [], count: 0, registry_scan_complete: true });
+    const inventory = await readIdaSessionInventory(connection, releaseId);
+    expect(inventory.sessions).toEqual([]);
+    expect(calls).toEqual([
+      { name: "idb_list", args: { strict_discovery: true } },
+    ]);
+  });
+
+  it("preserves existing inventory arguments for older supervisors", async () => {
+    const { connection, reply, calls } = await fixture();
+    reply({ sessions: [] });
+    expect(
+      (await readIdaSessionInventory(connection, undefined)).sessions,
+    ).toEqual([]);
+    expect(calls).toEqual([{ name: "idb_list", args: {} }]);
+  });
+
+  it.each([
+    ["missing completeness", { sessions: [], count: 0 }],
+    [
+      "explicit incomplete",
+      { sessions: [], count: 0, registry_scan_complete: false },
+    ],
+    [
+      "inconsistent count",
+      { sessions: [], count: 1, registry_scan_complete: true },
+    ],
+    [
+      "discovery error",
+      { error: "Failed to list sessions: Instance discovery incomplete" },
+    ],
+    ["missing sessions", { count: 0, registry_scan_complete: true }],
+  ] as const)(
+    "refuses %s even with an empty-looking inventory",
+    async (_label, response) => {
+      const { connection, reply } = await fixture();
+      reply(jsonValueSchema.parse(response));
+      await expect(
+        readIdaSessionInventory(connection, releaseId),
+      ).rejects.toThrow();
+    },
+  );
 });

@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import { createIdaMcpConnection } from "./IdaMcpConnection.js";
 import {
   closeDatabaseSchema,
-  databaseListSchema,
   openDatabaseSchema,
+  strictDatabaseListSchema,
 } from "./IdaProtocolValues.js";
 import { closeVerifiedIdaWorker } from "./IdaWorkerRelease.js";
 
@@ -89,10 +89,14 @@ for await (const line of createInterface({ input: process.stdin })) {
         });
       }
     } else if (name === "idb_list") {
+      const sessions = session === undefined
+        ? []
+        : [{ ...session, owned: true, backend: "worker", is_active: true }];
       reply(request.id, {
-        sessions: session === undefined
-          ? []
-          : [{ ...session, owned: true, backend: "worker", is_active: true }],
+        sessions,
+        ...(args.strict_discovery === true
+          ? { count: sessions.length, registry_scan_complete: true }
+          : {}),
       });
     } else {
       reply(request.id, { error: "Unexpected tool" });
@@ -170,8 +174,9 @@ describe("IDA PR #551 real stdio MCP release contract", () => {
           release_id: releaseId,
         });
         expect(
-          databaseListSchema.parse(await connection.call("idb_list", {}))
-            .sessions,
+          strictDatabaseListSchema.parse(
+            await connection.call("idb_list", { strict_discovery: true }),
+          ).sessions,
         ).toEqual([]);
       } finally {
         await connection.close();

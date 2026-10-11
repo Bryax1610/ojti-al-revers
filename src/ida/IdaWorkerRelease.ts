@@ -2,9 +2,26 @@ import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import {
   closeDatabaseSchema,
+  databaseListSchema,
   idaWorkerReleaseSchema,
+  strictDatabaseListSchema,
 } from "./IdaProtocolValues.js";
 import { idaFileDigest, sameIdaHostPath } from "./IdaWorkspace.js";
+
+/** A release token requires #551's complete registry scan, not legacy discovery. */
+export const readIdaSessionInventory = async (
+  connection: IdaMcpConnection,
+  releaseId: string | undefined,
+) => {
+  const strict = releaseId !== undefined;
+  const inventory = await connection.call(
+    "idb_list",
+    strict ? { strict_discovery: true } : {},
+  );
+  return strict
+    ? strictDatabaseListSchema.parse(inventory)
+    : databaseListSchema.parse(inventory);
+};
 
 /**
  * Consumes ida-pro-mcp #551's real idb_close release receipt.

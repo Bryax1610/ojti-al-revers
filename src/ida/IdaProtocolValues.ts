@@ -217,6 +217,15 @@ export const databaseListSchema = z
     ),
   })
   .passthrough();
+/** PR #551 strict discovery must explicitly prove its registry scan completed. */
+export const strictDatabaseListSchema = databaseListSchema
+  .extend({
+    count: z.number().int().nonnegative(),
+    registry_scan_complete: z.literal(true),
+  })
+  .refine((value) => value.count === value.sessions.length, {
+    message: "IDA strict discovery reported an inconsistent session count.",
+  });
 export const closeDatabaseSchema = z
   .object({
     success: z.literal(true),
