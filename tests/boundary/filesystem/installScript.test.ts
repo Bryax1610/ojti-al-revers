@@ -172,6 +172,35 @@ describe("curl installer scenarios", { timeout: 20_000 }, () => {
   });
 });
 
+describe("truncated installer download", { timeout: 20_000 }, () => {
+  it("runs nothing from a download truncated after the npm install line", async () => {
+    const fixture = await createFixture();
+    const source = await readFile(join(process.cwd(), "install.sh"), "utf8");
+    const installLine = source.indexOf('npm "${install_args[@]}" ||');
+    expect(installLine).toBeGreaterThan(0);
+    const truncated = join(fixture.home, "..", "install-truncated.sh");
+    await writeFile(
+      truncated,
+      source.slice(0, source.indexOf("\n", installLine) + 1),
+    );
+    const failure: unknown = await runInstaller(
+      fixture,
+      ["--version", "0.3.0", "--no-setup"],
+      {},
+      truncated,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect(getProcessOutput(failure, "stdout")).toBe("");
+    expect(getProcessOutput(failure, "stderr")).toContain("syntax error");
+    await expect(readFile(fixture.npmLog, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+});
+
 describe("Linux user-prefix installer", { timeout: 20_000 }, () => {
   it("prints the executed arguments as a reusable command with shell metacharacters", async () => {
     const fixture = await createFixture();
@@ -408,8 +437,9 @@ const runInstaller = async (
   fixture: InstallerFixture,
   args: readonly string[] = [],
   overrides: Readonly<Record<string, string>> = {},
+  script = join(process.cwd(), "install.sh"),
 ): Promise<{ readonly stdout: string; readonly stderr: string }> =>
-  execFileAsync("/bin/bash", [join(process.cwd(), "install.sh"), ...args], {
+  execFileAsync("/bin/bash", [script, ...args], {
     env: {
       ...process.env,
       HOME: fixture.home,
