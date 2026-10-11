@@ -220,6 +220,7 @@ const runSetupWorkflow = async (
     installHopper: planDiscovery.installHopper,
     installSkill,
     skillSelected,
+    selectedSkillClientIds,
     selectedClients: planned.selectedClients,
     clientsToConfigure: planned.clientsToConfigure,
   };
@@ -519,6 +520,7 @@ const resolvedReadinessScope = (
     readonly selectedClients: readonly SetupClient[];
     readonly installHopper: boolean;
     readonly skillSelected?: boolean;
+    readonly selectedSkillClientIds: readonly string[];
   },
 ): DoctorScope => ({
   clients: selection.selectedClients.map(({ name }) => name),
@@ -526,6 +528,9 @@ const resolvedReadinessScope = (
     ? ["hopper"]
     : (requested?.providers ?? []),
   skill: selection.skillSelected === true || requested?.skill === true,
+  ...(selection.skillSelected === true || requested?.skill === true
+    ? { skillClients: selection.selectedSkillClientIds }
+    : {}),
 });
 
 const summarizeDoctor = (report: DoctorReport): SetupDoctorSummary => ({

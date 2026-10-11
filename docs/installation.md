@@ -333,6 +333,12 @@ Other integrations, including Qwen Code, use `~/.agents/skills`.
 A mixed selection plans each distinct destination. Selecting the skill without a client uses the shared
 directory. Setup leaves existing skill copies in other locations untouched.
 
+`setup --skill-client claude_code --yes --json` refreshes and verifies only
+the selected skill destination, independently of MCP registration selection.
+Its final `doctor.scope.skill_clients` records the skill destinations checked;
+`doctor.scope.clients` continues to describe required client registrations.
+An absent, unselected shared skill does not make a client-only refresh fail.
+
 `doctor --skill --json` verifies the selected copies against the bundled
 instructions and references. Consumers should use `identity.skill.state`,
 `installed_version`, and `installed_tool_count` for skill readiness. The

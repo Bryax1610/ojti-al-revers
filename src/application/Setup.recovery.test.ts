@@ -230,6 +230,7 @@ describe("setup scoped readiness", () => {
     expect(result.plannedActions).toEqual([]);
     expect(host.doctorScopes.at(-1)).toEqual({
       clients: ["codex"],
+      skillClients: ["codex"],
       providers: [],
       skill: true,
     });
