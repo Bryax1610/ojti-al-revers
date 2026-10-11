@@ -660,8 +660,9 @@ It accepts Ghidra 12.1.x and the 64-bit full JDK declared by that installation's
 JDK 21 or newer and set no maximum. The bridge is verified with Ghidra 12.1.4
 and JDK 21. Each installation must include the native decompiler for the host
 architecture in `Ghidra/Features/Decompiler/os/<platform>/` or the corresponding
-`build/os/<platform>/` directory. Linux ARM64 uses `linux_arm_64`; official
-release archives may require you to build that native component separately.
+`build/os/<platform>/` directory. Linux ARM64 uses `linux_arm_64`, and official
+release archives ship no macOS native at all; both need that component built
+separately — see [the macOS build](#ghidra-native-decompiler-on-macos).
 REA checks the executable prerequisite by inspecting the file's own executable
 header, so a native component built for another platform or architecture is
 reported as incompatible instead of being admitted from its directory name, and
@@ -762,6 +763,33 @@ Operations run until a result, caller cancellation, or provider shutdown; there
 is no fixed per-operation or response-size ceiling. Unresolved computed calls
 remain unknown, reference-kind provenance is preserved, and provider-specific
 pseudocode is never treated as original source or Hopper-equivalent text.
+
+### Ghidra native decompiler on macOS
+
+The official 12.1.4 archive ships the native decompiler only for
+`linux_x86_64` and `win_x86_64`. A macOS installation satisfies the executable
+prerequisite by building that component from the C++ sources the same archive
+contains. On Apple silicon, with the Xcode command line tools installed:
+
+```bash
+cd "$GHIDRA_INSTALL_DIR/Ghidra/Features/Decompiler/src/decompile/cpp"
+make ghidra_opt -j"$(sysctl -n hw.ncpu)" ARCH_TYPE="-arch arm64" \
+  ADDITIONAL_FLAGS="-mmacosx-version-min=12.0"
+mkdir -p "$GHIDRA_INSTALL_DIR/Ghidra/Features/Decompiler/os/mac_arm_64"
+cp ghidra_opt \
+  "$GHIDRA_INSTALL_DIR/Ghidra/Features/Decompiler/os/mac_arm_64/decompile"
+```
+
+Build the `ghidra_opt` target. The other targets compile the BFD load image as
+well (`loadimage_bfd.cc`, `bfd_arch.cc`) and stop at
+`fatal error: 'bfd.h' file not found`, and macOS ships no libbfd. Override
+`ARCH_TYPE` too: the Makefile's `Darwin` branch hardcodes `-arch x86_64`. On
+Intel macOS, use `-arch x86_64` and `os/mac_x86_64`. The archive already
+contains the generated sleigh parser, so an older bundled `bison` is never run.
+
+`rea doctor --provider ghidra --json` then accepts the built file: REA reads the
+file's own executable header, reports the observed Mach-O architecture, and the
+Ghidra provider becomes available for native targets.
 
 ### Ghidra import language and analysis seeds
 
