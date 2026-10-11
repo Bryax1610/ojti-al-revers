@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
 import type { JavaScriptStaticAnalysis } from "../../domain/javascript/javascriptStaticAnalysisTypes.js";
 import { estimateJavaScriptStaticApplicationProjection } from "../../domain/javascript/javascriptApplicationProjectionResources.js";
+import { javaScriptStaticCheckpointReserveBytes } from "../../domain/javascript/javascriptAnalysisResourceControls.js";
 import type { JavaScriptModuleSemanticIr } from "../../domain/javascript/javascriptModuleSemanticIr.js";
 import type { JavaScriptSemanticFileProjection } from "../../domain/javascript/javascriptSemanticFileProjection.js";
 import type {
@@ -641,14 +642,12 @@ export class JavaScriptAnalysisWorker {
     // Future sources need their compact observations before current modules
     // consume capacity with expanded relationships. A final or sole source
     // can use the unused reserve as well.
-    const staticReserve =
-      this.#sourcesRemaining !== undefined && this.#sourcesRemaining > 0
-        ? Math.max(
-            0,
-            Math.floor((this.#resultBudgetBytes * 4) / 5) -
-              this.#retainedStaticBytes,
-          )
-        : 0;
+    const staticReserve = javaScriptStaticCheckpointReserveBytes(
+      this.#resultBudgetBytes,
+      this.#retainedStaticBytes,
+      this.#sourcesRemaining,
+      DEFAULTS.checkpointBytes,
+    );
     return Math.max(0, this.#remainingTotalResultBudget() - staticReserve);
   }
   #remainingTotalResultBudget(): number {

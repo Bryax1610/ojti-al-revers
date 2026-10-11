@@ -6,7 +6,31 @@ import type { ApplicationCoverage } from "./javascriptApplicationEvidenceSchemas
 export const JAVASCRIPT_ANALYSIS_RESOURCE_DEFAULTS = {
   heapMb: 1024,
   timeoutMs: 300_000,
+  semanticNodes: 100_000,
+  semanticNodesPerFile: 20_000,
 } as const;
+
+/** Maximum caller-selected node capacity; heap and transfer admission still apply. */
+export const JAVASCRIPT_SEMANTIC_NODE_MAXIMUM = 1_000_000;
+
+/** Reserve future compact checkpoints without withholding unreachable capacity. */
+export const javaScriptStaticCheckpointReserveBytes = (
+  resultBudgetBytes: number,
+  retainedStaticBytes: number,
+  remainingSources: number | undefined,
+  maxCheckpointBytes: number,
+): number =>
+  remainingSources === undefined || remainingSources === 0
+    ? 0
+    : Math.min(
+        Math.max(
+          0,
+          Math.floor((resultBudgetBytes * 4) / 5) - retainedStaticBytes,
+        ),
+        // Each admitted checkpoint retains at most this many bytes. The 6x
+        // expansion matches static-checkpoint admission in the worker consumer.
+        remainingSources * maxCheckpointBytes * 6,
+      );
 
 /** Project observed execution limits without inventing unmeasured values. */
 export const javaScriptAnalysisCoverageLimits = (
@@ -36,6 +60,24 @@ export const javaScriptAnalysisCoverageLimits = (
 
 /** Optional operational choices; omission keeps them out of Evidence parameters. */
 export const javaScriptAnalysisResourceControlsSchema = z.strictObject({
+  max_semantic_nodes: z
+    .number()
+    .int()
+    .min(1)
+    .max(JAVASCRIPT_SEMANTIC_NODE_MAXIMUM)
+    .optional()
+    .describe(
+      "Maximum retained semantic nodes across the application; defaults to 100000. Worker heap and parent result admission remain enforced.",
+    ),
+  max_semantic_nodes_per_file: z
+    .number()
+    .int()
+    .min(1)
+    .max(JAVASCRIPT_SEMANTIC_NODE_MAXIMUM)
+    .optional()
+    .describe(
+      "Maximum retained semantic nodes per source file; defaults to 20000, additionally bounded by max_semantic_nodes and memory/transfer limits.",
+    ),
   max_heap_mb: z
     .number()
     .int()

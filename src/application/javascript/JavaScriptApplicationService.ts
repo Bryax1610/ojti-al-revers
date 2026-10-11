@@ -59,6 +59,12 @@ export const analyzeJavaScriptApplicationValidated = async (
         input_path: input.input_path,
         format: input.format,
         integrity_policy: input.integrity_policy,
+        ...(input.max_semantic_nodes === undefined
+          ? {}
+          : { max_semantic_nodes: input.max_semantic_nodes }),
+        ...(input.max_semantic_nodes_per_file === undefined
+          ? {}
+          : { max_semantic_nodes_per_file: input.max_semantic_nodes_per_file }),
         ...(input.max_heap_mb === undefined
           ? {}
           : { max_heap_mb: input.max_heap_mb }),
