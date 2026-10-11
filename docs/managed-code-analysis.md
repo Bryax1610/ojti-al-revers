@@ -126,6 +126,13 @@ Member inspection binds build-local tokens, signatures, row offsets, method
 bodies, and decoded relationships to that artifact and MVID. Missing or malformed
 facts remain explicit in coverage and per-member status.
 
+Metadata table streams may carry the CLR-compatible `ExtraData` extension
+(`HeapSizes` flag `0x40`), which Microsoft readers honor although it is not
+specified by ECMA-335. REA skips its fixed four-byte word after the row counts
+before decoding table rows; the word's value is not a length. An incomplete
+word is reported as a metadata coverage failure at its file offset, without
+reading beyond the declared table stream.
+
 `exported_types` reports ExportedType rows as declared. Facade assemblies such
 as .NET `System.Runtime.dll` provide their types this way: `forwarder: true`
 marks a type forwarder, and `implementation_token` names the AssemblyRef, File,

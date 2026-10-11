@@ -18,6 +18,7 @@ interface ManagedPeFixtureOptions {
   readonly ilBody?: Buffer;
   readonly malformedAssemblyReferenceRows?: readonly number[];
   readonly malformedCustomAttributeRows?: readonly number[];
+  readonly metadataExtraData?: number;
   readonly metadataValidMaskExtra?: bigint;
   readonly methodName?: string;
   readonly methodSignature?: Buffer;
@@ -450,12 +451,13 @@ const tablesStream = (
   rows: ReadonlyMap<number, readonly Buffer[]>,
   extraValidMask: bigint,
   heapSizes: number,
+  extraData?: number,
 ): Buffer => {
   let valid = extraValidMask;
   for (const table of rows.keys()) valid |= 1n << BigInt(table);
   const header = Buffer.alloc(24);
   header.writeUInt8(2, 4);
-  header.writeUInt8(heapSizes, 6);
+  header.writeUInt8(heapSizes | (extraData === undefined ? 0 : 0x40), 6);
   header.writeUInt8(1, 7);
   header.writeBigUInt64LE(valid, 8);
   const counts: Buffer[] = [];
@@ -470,7 +472,12 @@ const tablesStream = (
     if (tableRows === undefined) continue;
     data.push(...tableRows);
   }
-  return Buffer.concat([header, ...counts, ...data]);
+  return Buffer.concat([
+    header,
+    ...counts,
+    ...(extraData === undefined ? [] : [u32(extraData)]),
+    ...data,
+  ]);
 };
 
 interface FixtureMetadataRowContext {
@@ -845,7 +852,12 @@ const buildManagedFixtureMetadata = (
     (guidSize === 4 ? 0x02 : 0) |
     (blobSize === 4 ? 0x04 : 0);
   const metadata = metadataRoot(
-    tablesStream(rows, options.metadataValidMaskExtra ?? 0n, heapFlags),
+    tablesStream(
+      rows,
+      options.metadataValidMaskExtra ?? 0n,
+      heapFlags,
+      options.metadataExtraData,
+    ),
     strings.toBuffer(),
     guidHeap(options.mvid),
     blobs.toBuffer(),
