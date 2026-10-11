@@ -139,7 +139,6 @@ describe("MCP compact input schema profile", () => {
       "compare_application_versions",
       "compare_web_captures",
       "evaluate_reconstruction_coverage",
-      "project_managed_application_graph",
     ]);
     expect(tools.length).toBe(TOOL_CONTRACTS.length);
   });

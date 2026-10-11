@@ -25,8 +25,12 @@ health transition leaves that catalog unchanged and does not emit
 
 Advertised input and output schemas contain no reachable recursive references.
 Schemas share repeated definitions through schema-local references while
-preserving complete nested fields and validation rules. Input properties retain
-their descriptions and literal examples.
+preserving complete nested fields and validation rules. Input schemas whose
+shared definitions would exhaust a client's declaration-rendering reference
+budget (Pi 1.1.0 code-mode shares 32 reference expansions across an input and
+renders every later reference as `unknown`) are re-projected without shared
+definitions, so every advertised field renders with complete structure.
+Input properties retain their descriptions and literal examples.
 
 Hosts forward input schemas to the model with every request, so advertised
 examples never copy complete producer Evidence. An embedded Evidence record is
@@ -73,7 +77,7 @@ JSON Schema:
   objects or arrays.
 - The few schemas whose validation structure alone exceeds the budget
   (`compare_web_captures`, `build_reconstruction_obligation_ledger`,
-  `evaluate_reconstruction_coverage`, `project_managed_application_graph`,
+  `evaluate_reconstruction_coverage`,
   `compare_application_versions`, `capture_browser_scenario`) are advertised
   in a reduced form: property names, reference-resolved types (including union
   alternatives), first-level guidance, and the root's required-field constraints,
@@ -84,7 +88,7 @@ JSON Schema:
 
 Boundary tests pin every advertised compact schema to the budget, keep them
 valid JSON Schema that still accepts every canonical example, and hold the
-set of six reduced presentations as contracts evolve. Client verification
+set of five reduced presentations as contracts evolve. Client verification
 also checks provider-facing sizes and canonical examples after conversion by
 the actual Kimi Code CLI; local captures do not establish Moonshot acceptance.
 
