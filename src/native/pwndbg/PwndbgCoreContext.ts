@@ -17,7 +17,11 @@ import {
   type RecordedCrash,
 } from "../../domain/native/recordedCrash.js";
 import { readStableArtifact } from "../../artifacts/readStableArtifact.js";
-import { runOwnedCommand } from "../../process/OwnedCommand.js";
+import {
+  OwnedCommandFailure,
+  runOwnedCommand,
+} from "../../process/OwnedCommand.js";
+import type { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
 import {
   capturedPwntoolsOutput,
   pwntoolsDecoderFailure,
@@ -49,6 +53,7 @@ export const inspectPwndbgCore = async ({
   diagnostics,
   options,
   launcher,
+  retainProcessCleanup,
   probePath,
 }: {
   readonly environment: Readonly<NodeJS.ProcessEnv>;
@@ -56,6 +61,7 @@ export const inspectPwndbgCore = async ({
   readonly diagnostics: AnalysisCapturedOutput;
   readonly options: ExecutionOptions | undefined;
   readonly launcher?: PwntoolsLauncher;
+  readonly retainProcessCleanup: (owner: ProviderProcessSupervisor) => void;
   readonly probePath?: (
     path: string,
     kind: "file" | "directory",
@@ -218,6 +224,11 @@ export const inspectPwndbgCore = async ({
       );
     return { ...reply.value, diagnostics: output };
   } catch (cause: unknown) {
+    if (
+      cause instanceof OwnedCommandFailure &&
+      cause.cleanupOwner !== undefined
+    )
+      retainProcessCleanup(cause.cleanupOwner);
     if (
       options?.signal?.aborted &&
       (cause === options.signal.reason ||

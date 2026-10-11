@@ -21,6 +21,10 @@ const OPERATION = "inspect_recorded_crash";
 export class RecordedCrashService {
   constructor(readonly provider: RecordedCrashPort) {}
 
+  close(): Promise<void> {
+    return this.provider.close?.() ?? Promise.resolve();
+  }
+
   /** Bind complete observations to the caller-selected artifact before creating Evidence. */
   async inspect(
     rawInput: unknown,
