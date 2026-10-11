@@ -11,6 +11,16 @@ describe("source map directives", () => {
   it.each([
     ["line comment", "//# sourceMappingURL=app.js.map", "app.js.map"],
     ["legacy line comment", "//@ sourceMappingURL=app.js.map", "app.js.map"],
+    [
+      "line comment with an asterisk",
+      "//# sourceMappingURL=app*part.js.map",
+      "app*part.js.map",
+    ],
+    [
+      "legacy line comment with an asterisk",
+      "//@ sourceMappingURL=app*part.js.map",
+      "app*part.js.map",
+    ],
     // Minifiers commonly emit the block form; it previously matched nothing.
     ["block comment", "/*# sourceMappingURL=app.js.map */", "app.js.map"],
     [

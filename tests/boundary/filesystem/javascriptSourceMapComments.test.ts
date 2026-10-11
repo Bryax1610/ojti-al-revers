@@ -50,3 +50,53 @@ it("creates source-map graph relationships only for real comments", async () => 
       ?.observations.map(({ properties }) => properties.declared_url),
   ).toContain("real.map");
 });
+
+it.each(["//#", "//@"])(
+  "keeps an asterisk in a %s line-comment URL and links the map",
+  async (marker) => {
+    const root = await createTestTempDirectory("rea-source-map-asterisk-");
+    const directive = `${marker} sourceMappingURL=app*part.js.map`;
+    await writeFile(
+      join(root, "app.js"),
+      `export const value = 1;\n${directive}\n`,
+    );
+    await writeFile(
+      join(root, "app*part.js.map"),
+      JSON.stringify({ version: 3, sources: [], names: [], mappings: "" }),
+    );
+    const result = await reconstructJavaScriptArtifact({ input_path: root });
+    const nodes = new Map(
+      result.graph.nodes.map((node) => [node.node_id, node]),
+    );
+    const mapNodes = result.graph.nodes.filter(
+      ({ kind }) => kind === "source-map",
+    );
+    expect(mapNodes).toHaveLength(1);
+    expect(
+      mapNodes[0]?.observations.map(({ properties }) => properties),
+    ).toContainEqual(
+      expect.objectContaining({
+        declared_url: "app*part.js.map",
+        resolved_path: "app*part.js.map",
+        available: true,
+      }),
+    );
+    const edge = result.graph.edges.find(
+      ({ relation, target_node_id }) =>
+        relation === "maps_to" &&
+        nodes.get(target_node_id)?.kind === "source-map",
+    );
+    expect(edge).toMatchObject({
+      target_node_id: mapNodes[0]?.node_id,
+      properties: { resolved_path: "app*part.js.map" },
+      evidence: {
+        location: {
+          value: {
+            start: { line: 2, column: 0 },
+            end: { line: 2, column: directive.length },
+          },
+        },
+      },
+    });
+  },
+);
