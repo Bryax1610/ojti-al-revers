@@ -29,7 +29,6 @@ import {
   type IdaOperation,
 } from "./IdaProviderCapabilities.js";
 import {
-  closeDatabaseSchema,
   databaseListSchema,
   legacyMetadataSchema,
   modernHealthSchema,
@@ -41,6 +40,7 @@ import {
   sameIdaHostPath,
 } from "./IdaWorkspace.js";
 import { parseIdaInput } from "./IdaInput.js";
+import { closeVerifiedIdaWorker } from "./IdaWorkerRelease.js";
 
 const legacyTools = [
   "get_metadata",
@@ -101,6 +101,7 @@ export class IdaSessionClient implements AnalysisClient {
   #workspace: IdaWorkspace | undefined;
   #database: string | undefined;
   #databaseCloseAcknowledged = false;
+  #workerReleaseVerified = false;
   #openAttempted = false;
   #openCompleted = false;
   #initialIdentity: string | undefined;
@@ -436,39 +437,35 @@ export class IdaSessionClient implements AnalysisClient {
         }
         if (this.#database !== undefined) {
           if (!this.#databaseCloseAcknowledged) {
-            const closed = closeDatabaseSchema.parse(
-              await this.connection.call("idb_close", {
-                database: this.#database,
-                save: false,
-              }),
-            );
-            if (
-              closed.session_id !== this.#database ||
-              closed.saved === true ||
-              closed.owned !== true ||
-              closed.backend !== "worker"
-            )
-              throw new AnalysisProtocolError(
-                "IDA database close did not confirm the requested owned, unsaved session release.",
-              );
+            const outcome = await closeVerifiedIdaWorker({
+              connection: this.connection,
+              database: this.#database,
+              privateSessionId: this.#workspace.sessionId,
+              inputPath: this.#workspace.inputPath,
+              sha256: this.target.sha256,
+              openCompleted: this.#openCompleted,
+            });
+            this.#workerReleaseVerified = outcome === "release-verified";
             this.#databaseCloseAcknowledged = true;
           }
-          const inventory = databaseListSchema.parse(
-            await this.connection.call("idb_list", {}),
-          );
-          if (
-            inventory.sessions.some(
-              (entry) =>
-                entry.session_id === this.#database ||
-                sameIdaHostPath(
-                  entry.input_path,
-                  this.#workspace?.inputPath ?? "",
-                ),
-            )
-          )
-            throw new AnalysisProtocolError(
-              "IDA worker remains registered after close.",
+          if (!this.#workerReleaseVerified) {
+            const inventory = databaseListSchema.parse(
+              await this.connection.call("idb_list", {}),
             );
+            if (
+              inventory.sessions.some(
+                (entry) =>
+                  entry.session_id === this.#database ||
+                  sameIdaHostPath(
+                    entry.input_path,
+                    this.#workspace?.inputPath ?? "",
+                  ),
+              )
+            )
+              throw new AnalysisProtocolError(
+                "IDA worker remains registered after close.",
+              );
+          }
           this.#database = undefined;
         }
         if (!this.#openCompleted)

@@ -722,6 +722,128 @@ describe("headless IDA session ownership and cleanup", () => {
   });
 });
 
+describe("headless IDA reaped worker recovery", () => {
+  const reapedWorker = async () => {
+    const context = await fixture("headless");
+    const { producer, client } = context;
+    expect((await client.execute("health", {})).ok).toBe(true);
+    const sessionId = producer.database;
+    if (sessionId === undefined) throw new Error("Missing worker");
+    const inputPath = producer.inputPath;
+    producer.database = undefined;
+    producer.overrideCall = (name) =>
+      name === "idb_close" ? { error: "Session not found" } : undefined;
+    const proof = () => ({
+      session_id: sessionId,
+      input_path: inputPath,
+      owned: true,
+      backend: "worker",
+      process_exited: true,
+      discovery: { status: "complete", sessions: [] },
+    });
+    return { ...context, sessionId, inputPath, proof };
+  };
+
+  it("keeps workspace and connection if reaped worker is absent from ordinary inventory without proof", async () => {
+    const { producer, client, root } = await reapedWorker();
+    expect((await client.close()).ok).toBe(false);
+    expect((await client.close()).ok).toBe(false);
+    expect(producer.closes).toBe(0);
+    expect((await readdir(root)).some((x) => x.startsWith("rea-ida-"))).toBe(
+      true,
+    );
+  });
+
+  it("recovers only with independent matching proof and deduplicates concurrent close", async () => {
+    const { producer, client, root, proof, sessionId, inputPath } =
+      await reapedWorker();
+    let verifications = 0;
+    Object.assign(producer, {
+      verifyWorkerRelease: async (identity: {
+        sessionId: string;
+        inputPath: string;
+      }) => {
+        expect(identity).toEqual({ sessionId, inputPath });
+        verifications++;
+        return proof();
+      },
+    });
+    const closed = await Promise.all([client.close(), client.close()]);
+    expect(closed.every((result) => result.ok)).toBe(true);
+    expect(verifications).toBe(1);
+    expect(producer.closes).toBe(1);
+    expect(producer.calls.filter((x) => x.name === "idb_close")).toHaveLength(
+      1,
+    );
+    expect(producer.calls.find((x) => x.name === "idb_close")?.args.save).toBe(
+      false,
+    );
+    expect(await readdir(root)).toEqual(["target.elf"]);
+    expect((await client.close()).ok).toBe(true);
+  });
+
+  it("fails closed for foreign, unowned, live or incompletely discovered worker claims", async () => {
+    for (const kind of [
+      "foreign-id",
+      "foreign-input",
+      "unowned",
+      "gui",
+      "alive",
+      "discovery-failed",
+      "still-registered",
+      "missing-exit",
+    ] as const) {
+      const { producer, client, root, proof, sessionId, inputPath } =
+        await reapedWorker();
+      const evidence: Record<string, JsonValue> = proof();
+      if (kind === "foreign-id") evidence.session_id = "foreign";
+      if (kind === "foreign-input") evidence.input_path = inputPath + ".other";
+      if (kind === "unowned") evidence.owned = false;
+      if (kind === "gui") evidence.backend = "gui";
+      if (kind === "alive") evidence.process_exited = false;
+      if (kind === "discovery-failed")
+        evidence.discovery = { status: "failed", sessions: [] };
+      if (kind === "still-registered")
+        evidence.discovery = {
+          status: "complete",
+          sessions: [
+            {
+              session_id: sessionId,
+              input_path: inputPath,
+              owned: true,
+              backend: "worker",
+              is_active: true,
+            },
+          ],
+        };
+      if (kind === "missing-exit") delete evidence.process_exited;
+      Object.assign(producer, { verifyWorkerRelease: async () => evidence });
+      const result = await client.close();
+      expect(result.ok, kind).toBe(false);
+      if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
+      expect(producer.closes, kind).toBe(0);
+      expect(
+        (await readdir(root)).some((x) => x.startsWith("rea-ida-")),
+        kind,
+      ).toBe(true);
+    }
+  });
+
+  it("uses complete verified discovery even when legacy list is unavailable", async () => {
+    const { producer, client, root, proof } = await reapedWorker();
+    Object.assign(producer, { verifyWorkerRelease: async () => proof() });
+    producer.beforeCall = async (name) => {
+      if (name === "idb_list") throw new Error("Discovery failed");
+    };
+    expect((await client.close()).ok).toBe(true);
+    expect(producer.calls.filter((x) => x.name === "idb_close")).toHaveLength(
+      1,
+    );
+    expect(producer.closes).toBe(1);
+    expect(await readdir(root)).toEqual(["target.elf"]);
+  });
+});
+
 describe("headless IDA cleanup verification", () => {
   it("retries failed worker release through the retained connection before removing its workspace", async () => {
     const { producer, client, root } = await fixture("headless");
