@@ -1,3 +1,7 @@
+import {
+  analysisViewCaptureFixture,
+  analysisViewCaptureEvidence,
+} from "../../../tests/fixtures/analysisView.js";
 import { describe, expect, it } from "vitest";
 
 import { JAVASCRIPT_APPLICATION_EVIDENCE_EXAMPLE } from "../../contracts/javascript/javascriptRuntimeReconciliationExample.js";
@@ -344,5 +348,33 @@ describe("summarizeRetainedAnalysis", () => {
         evidenceById: () => parent,
       }),
     ).toEqual(err(conflict));
+  });
+});
+
+it("seals inferred and literal HAR pages, including a null artifact digest", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.artifact.sha256 = null;
+  const parent = analysisViewCaptureEvidence(capture);
+  for (const [offset, confidence] of [
+    [0, "derived"],
+    [11, "inferred"],
+  ] as const) {
+    const result = inspectAnalysisView({
+      source: { kind: "inline", evidence: parent },
+      view: { kind: "api-surface", offset, limit: 1 },
+    });
+    if (!result.ok) throw result.error;
+    expect(result.value.confidence).toBe(confidence);
+    expect(result.value.subject).toBeNull();
+    expect(parseEvidence(result.value)).toEqual(result.value);
+  }
+  expect(
+    inspectAnalysisView({
+      source: { kind: "inline", evidence: analysisViewLayoutEvidence() },
+      view: { kind: "api-surface" },
+    }),
+  ).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisUnsupportedTargetError" },
   });
 });
