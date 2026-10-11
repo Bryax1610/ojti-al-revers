@@ -125,6 +125,13 @@ const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
   return isAbsolute(expanded) ? expanded : resolve(expanded);
 };
 
+/** Match Kimi Code's home override: a non-empty KIMI_CODE_HOME wins unexpanded. */
+const kimiCodeDirectory = ({ home, env }: ClientPathContext): string => {
+  const override = env.KIMI_CODE_HOME;
+  if (!override) return join(home, ".kimi-code");
+  return override;
+};
+
 const grokDirectory = ({ home, env }: ClientPathContext): string =>
   env.GROK_HOME || join(home, ".grok");
 
@@ -442,6 +449,14 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     configPath: (context: ClientPathContext) =>
       join(qwenCodeDirectory(context), "settings.json"),
     markerPath: qwenCodeDirectory,
+    format: "json",
+  },
+  {
+    name: "kimi_code",
+    displayName: "Kimi Code",
+    configPath: (context: ClientPathContext) =>
+      join(kimiCodeDirectory(context), "mcp.json"),
+    markerPath: kimiCodeDirectory,
     format: "json",
   },
   {

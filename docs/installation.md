@@ -157,6 +157,7 @@ listed after the table because its connector is not one of these files:
 | GitHub Copilot CLI | `copilot_cli`    |
 | Command Code       | `commandcode`    |
 | Qwen Code          | `qwen_code`      |
+| Kimi Code          | `kimi_code`      |
 | VS Code            | `vscode`         |
 | Grok Build         | `grok_build`     |
 | OMP                | `omp`            |
@@ -214,6 +215,15 @@ user-level `~/.qwen/settings.json`, or `$QWEN_HOME/settings.json` when configure
 Setup and doctor follow Qwen Code's tilde and working-directory-relative home
 overrides. Qwen Code also discovers personal skills in `~/.agents/skills`,
 where setup installs the bundled workflow.
+
+For Kimi Code, setup registers `rea` in the `mcpServers` table of the
+user-level `~/.kimi-code/mcp.json`, or `$KIMI_CODE_HOME/mcp.json` when that
+override is nonempty (used as-is, without expansion). The written entry pins
+`"REA_MCP_INPUT_SCHEMA_PROFILE": "compact"` in its `env` object so every
+advertised schema stays under Moonshot's per-schema cap; an explicit user value
+keeps precedence, and refreshes retain it. Kimi Code discovers personal skills
+in `~/.agents/skills`, where setup installs the bundled workflow. Restart Kimi
+Code after changing MCP servers.
 
 Gemini CLI uses `$GEMINI_CLI_HOME/.gemini/settings.json` when that home override
 is nonempty, including its shared personal skills at

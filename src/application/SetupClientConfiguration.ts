@@ -417,10 +417,23 @@ const clientConfigurationDesired = (
     providerEnvironment,
   );
   if (!environment.ok) throw environment.error;
+  // Kimi Code's provider rejects a request when any advertised schema exceeds
+  // its per-schema cap; the compact presentation keeps every schema under it.
+  // The seed is a default: existing entry values and provider overrides keep
+  // precedence over it.
+  const effectiveEnvironment =
+    client.name === "kimi_code"
+      ? Object.fromEntries(
+          Object.entries({
+            REA_MCP_INPUT_SCHEMA_PROFILE: "compact",
+            ...environment.value,
+          }).sort(([left], [right]) => left.localeCompare(right)),
+        )
+      : environment.value;
   const registration = clientRegistrationEntry(
     format,
     command.length === 0 ? [PRODUCT_IDENTITY.cliBinary, "mcp"] : command,
-    environment.value,
+    effectiveEnvironment,
   );
   return {
     ...registration,
