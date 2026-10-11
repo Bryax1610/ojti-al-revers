@@ -36,8 +36,11 @@ const cases = keyedArchiveIntegerFormats.flatMap((format) =>
   keyedArchiveIntegerCases.map((selectedCase) => ({ format, selectedCase })),
 );
 // Selected by the existing required native keyed-archive verifier, not Linux skips.
+// The worker fixture compiles Swift against a cold, isolated module cache, and
+// that setup is charged to the first test's timeout.
 describe.skipIf(process.platform !== "darwin")(
   "Foundation archive integer precision",
+  { timeout: 120_000 },
   () => {
     archiveTest.for(cases)(
       "filesystem preserves $format $selectedCase numeric meaning",
