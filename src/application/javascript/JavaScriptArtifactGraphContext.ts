@@ -348,6 +348,7 @@ export const resolveArtifactPath = (
   sourcePath: string,
   files: ReadonlyMap<string, JavaScriptArtifactFile>,
   moduleKind?: "import" | "require",
+  allowEmittedCounterparts?: boolean,
 ): string | null =>
   resolveArtifactPathByContext({
     declaredPath: specifier,
@@ -355,6 +356,9 @@ export const resolveArtifactPath = (
     context: "module-specifier",
     files,
     ...(moduleKind === undefined ? {} : { moduleKind }),
+    ...(allowEmittedCounterparts === undefined
+      ? {}
+      : { allowEmittedCounterparts }),
   }).resolved_path;
 
 /** Locate the recovered module that owns a static finding. */

@@ -171,6 +171,7 @@ export const summarizeElectronBoundaries = (
         files,
         kind: "native-addon",
         moduleKind: finding.module_kind,
+        allowEmittedCounterparts: true,
       }),
     ).length,
   };
@@ -204,6 +205,7 @@ interface ResolveToFileInput {
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
   readonly kind?: JavaScriptArtifactFile["kind"];
   readonly moduleKind?: "import" | "require";
+  readonly allowEmittedCounterparts?: boolean;
 }
 
 const resolvesToFile = (input: ResolveToFileInput): boolean => {
@@ -213,6 +215,9 @@ const resolvesToFile = (input: ResolveToFileInput): boolean => {
     context: input.context,
     files: input.files,
     ...(input.moduleKind === undefined ? {} : { moduleKind: input.moduleKind }),
+    ...(input.allowEmittedCounterparts === undefined
+      ? {}
+      : { allowEmittedCounterparts: input.allowEmittedCounterparts }),
   }).resolved_path;
   return (
     resolved !== null &&

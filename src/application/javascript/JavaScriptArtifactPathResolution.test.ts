@@ -249,6 +249,203 @@ describe("contextual JavaScript artifact path resolution", () => {
   });
 });
 
+describe("NodeNext emitted-extension path resolution", () => {
+  it.each([
+    ["./dep.js", "app/dep.ts"],
+    ["./ui/Button.js", "app/ui/Button.tsx"],
+    ["./cfg.mjs", "app/cfg.mts"],
+    ["./legacy.cjs", "app/legacy.cts"],
+  ])(
+    "resolves NodeNext emitted specifier %s from a TypeScript source",
+    (declaredPath, expected) => {
+      const files = fileMap([
+        file("app/main.ts", "root"),
+        file("app/dep.ts", "root"),
+        file("app/ui/Button.tsx", "root"),
+        file("app/cfg.mts", "root"),
+        file("app/legacy.cts", "root"),
+      ]);
+      expect(
+        resolve({
+          declaredPath,
+          sourcePath: "app/main.ts",
+          context: "module-specifier",
+          files,
+          allowEmittedCounterparts: true,
+        }),
+      ).toMatchObject({
+        resolution_status: "resolved",
+        resolved_path: expected,
+      });
+    },
+  );
+
+  it("keeps the emitted runtime file ahead of its TypeScript counterpart", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file("app/both.js", "root"),
+      file("app/both.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./both.js",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/both.js",
+    });
+  });
+
+  it("does not substitute TypeScript counterparts outside module specifiers", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file("app/asset.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./asset.js",
+        sourcePath: "app/main.ts",
+        context: "filesystem-expression",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+
+  it("does not substitute TypeScript counterparts without a module-origin opt-in", () => {
+    // Runtime resource references (loadURL arguments, BrowserWindow preloads, utility
+    // process entrypoints) carry the module-specifier label from the literal fallback
+    // but are consumed verbatim by Electron; without the opt-in flag a missing emitted
+    // .js must not resolve to a same-stem .ts source.
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file("app/renderer.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./renderer.js",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+
+  it("does not substitute TypeScript counterparts for a JavaScript importer", () => {
+    const files = fileMap([
+      file("app/main.js", "root"),
+      file("app/dep.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "./dep.js",
+        sourcePath: "app/main.js",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+});
+
+describe("NodeNext emitted-extension package targets", () => {
+  it("substitutes a TypeScript source for a package exports target", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"exports":{".":"./dist/index.js"}}',
+      ),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/node_modules/pkg/dist/index.ts",
+    });
+  });
+
+  it("substitutes a TypeScript source for a package main entry", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"main":"./dist/index.js"}',
+      ),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/node_modules/pkg/dist/index.ts",
+    });
+  });
+
+  it("keeps an existing emitted package target ahead of its TypeScript source", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"exports":{".":"./dist/index.js"}}',
+      ),
+      file("app/node_modules/pkg/dist/index.js", "root"),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+        allowEmittedCounterparts: true,
+      }),
+    ).toMatchObject({
+      resolution_status: "resolved",
+      resolved_path: "app/node_modules/pkg/dist/index.js",
+    });
+  });
+
+  it("does not substitute package targets without the module-origin opt-in", () => {
+    const files = fileMap([
+      file("app/main.ts", "root"),
+      file(
+        "app/node_modules/pkg/package.json",
+        "root",
+        '{"exports":{".":"./dist/index.js"}}',
+      ),
+      file("app/node_modules/pkg/dist/index.ts", "root"),
+    ]);
+    expect(
+      resolve({
+        declaredPath: "pkg",
+        sourcePath: "app/main.ts",
+        context: "module-specifier",
+        files,
+      }),
+    ).toMatchObject({ resolution_status: "not-found", resolved_path: null });
+  });
+});
+
 describe("contextual JavaScript package path resolution", () => {
   it("follows package entrypoints beyond the former recursion ceiling", () => {
     const files = fileMap([

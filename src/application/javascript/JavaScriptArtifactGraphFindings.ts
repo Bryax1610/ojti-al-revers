@@ -406,6 +406,14 @@ const resolveReference = (
                 reference.kind === "dynamic-import"
               ? "import"
               : undefined,
+          // Only unshadowable syntactic kinds carry enough provenance here:
+          // a static "require" reference may invoke a lexically shadowed local
+          // function, while genuine CommonJS requires resolve through the
+          // scope-aware module-link path in JavaScriptModuleRelationships.
+          reference.kind === "static-import" ||
+            reference.kind === "dynamic-import"
+            ? true
+            : undefined,
         );
   if (path === null) return null;
   const file = context.filesByPath.get(path);

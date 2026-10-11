@@ -50,6 +50,7 @@ const addNativeBinding = (input: NativeBindingInput): void => {
     file.path,
     context.filesByPath,
     value.module_kind,
+    true,
   );
   const addon = resolved === null ? undefined : context.fileNodes.get(resolved);
   const binding = context.accumulator.addNode({

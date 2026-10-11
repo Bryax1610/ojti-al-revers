@@ -55,6 +55,7 @@ export interface ResolveArtifactPathInput {
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
   readonly htmlBaseHref?: string | null;
   readonly moduleKind?: "import" | "require";
+  readonly allowEmittedCounterparts?: boolean;
 }
 
 const EXTENSIONS = [
@@ -343,6 +344,13 @@ const resolveExportTarget = (
   if (typeof candidate !== "string") return candidate;
   return (
     resolveFileCandidates(input, [candidate]) ??
+    // A package's exports field names the emitted file; when only its TypeScript
+    // source is inventoried, the same NodeNext substitution applies. The exact
+    // emitted file keeps priority.
+    resolveFileCandidates(
+      input,
+      emittedExtensionCounterparts(input, candidate),
+    ) ??
     exactExportsTargetNotFound(candidate)
   );
 };
@@ -555,6 +563,9 @@ const resolveCandidate = (
   packageChain: ReadonlySet<string>,
 ): CandidateResolution =>
   resolveFileCandidates(input, fileCandidates(candidate)) ??
+  // An explicit TypeScript source counterpart is a more precise match than
+  // interpreting the emitted name as a directory package or index stem.
+  resolveFileCandidates(input, emittedExtensionCounterparts(input, candidate)) ??
   resolveDirectory(
     input,
     candidate,
@@ -610,7 +621,14 @@ const resolveDirectory = (
     resolveFileCandidates(entryInput, [
       ...fileCandidates(confined),
       ...indexCandidates(confined),
-    ]) ?? resolveFileCandidates(input, indexCandidates(directory));
+    ]) ??
+    // The main field names the emitted entrypoint; substitute its TypeScript
+    // source under the same opt-in as any other module specifier.
+    resolveFileCandidates(
+      input,
+      emittedExtensionCounterparts(input, confined),
+    ) ??
+    resolveFileCandidates(input, indexCandidates(directory));
   if (selected !== null) return selected;
   return resolveCandidate(
     entryInput,
@@ -643,6 +661,46 @@ const fileCandidates = (candidate: string): readonly string[] => [
 
 const indexCandidates = (candidate: string): readonly string[] =>
   EXTENSIONS.map((extension) => posix.join(candidate, `index${extension}`));
+
+/**
+ * NodeNext TypeScript sources import the emitted runtime name (`./dep.js`)
+ * while only the source file exists in the artifact. Mirror the
+ * emitted-extension counterparts from ReferenceSourceImportEntries for
+ * module specifiers in TypeScript sources; explicit filenames only, checked after
+ * the plain runtime candidates so a present emitted file keeps winning.
+ */
+const TYPESCRIPT_IMPORTER = /\.(?:ts|tsx|mts|cts)$/;
+
+const EMITTED_EXTENSION_COUNTERPARTS: readonly (readonly [
+  string,
+  readonly string[],
+])[] = [
+  [".js", [".ts", ".tsx", ".d.ts"]],
+  [".mjs", [".mts", ".d.mts"]],
+  [".cjs", [".cts", ".d.cts"]],
+  [".jsx", [".tsx", ".d.ts"]],
+];
+
+const emittedExtensionCounterparts = (
+  input: ResolveArtifactPathInput,
+  candidate: string,
+): readonly string[] => {
+  if (input.context !== "module-specifier") return [];
+  // Emitted-extension substitution is opt-in: only callers resolving a genuine module
+  // specifier (import/export/require origins) set this flag. Runtime resource paths such
+  // as loadURL arguments, BrowserWindow preloads, and utility-process entrypoints are
+  // consumed verbatim by Electron, and their labels fall back to "module-specifier"
+  // upstream, so the context label alone is not a sufficient signal.
+  if (input.allowEmittedCounterparts !== true) return [];
+  if (!TYPESCRIPT_IMPORTER.test(input.sourcePath)) return [];
+  const match = EMITTED_EXTENSION_COUNTERPARTS.find(([extension]) =>
+    candidate.endsWith(extension),
+  );
+  if (match === undefined) return [];
+  const [extension, replacements] = match;
+  const stem = candidate.slice(0, candidate.length - extension.length);
+  return replacements.map((replacement) => `${stem}${replacement}`);
+};
 
 type PackageExportOutcome =
   | { readonly status: "value"; readonly value: string }

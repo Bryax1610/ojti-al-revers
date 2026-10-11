@@ -279,6 +279,7 @@ const resolveModuleTarget = (
       input.link.kind === "require" || input.link.kind === "commonjs-export"
         ? "require"
         : "import",
+    allowEmittedCounterparts: true,
   });
   if (resolution.resolution_status !== "resolved")
     return {
