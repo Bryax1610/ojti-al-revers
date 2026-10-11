@@ -139,10 +139,16 @@ parameters). Flags report single samples, mixed statuses or mixed content types.
 parent records. Ordinal subsets carry a limitation. Null URLs are excluded as
 `url-redacted`; unparseable URLs or URLs without an origin as `url-unparseable`.
 Unavailable request objects or methods are explicitly excluded. Unavailable
-response fields remain unknown, not invented statuses or MIME types.
+response fields, including HAR's `status: 0` and an empty `mimeType`, remain
+unknown, not invented statuses or MIME types.
 
 The view makes no handler-identity, schema or causality claim. It performs no
 network activity. Native mitmproxy captures return a typed unsupported error.
+Parents inspected with `sensitive_values`, or whose Evidence does not record
+`sensitive_value_count`, also return a typed unsupported error: the view writes
+path templates and limitation text that it cannot check against declarations
+the parent does not retain. Path segment expansion is budgeted against the 96 MiB
+reply budget before grouping and returns `resource_constraint` when exceeded.
 
 ## Resource and lifecycle boundaries
 

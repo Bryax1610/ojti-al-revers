@@ -55,6 +55,7 @@ export const inspectAnalysisViewValidated = (
       operation: parent.operation,
       normalizedResult: parent.normalized_result,
       limitations: parent.limitations,
+      parameters: parent.parameters,
       artifact:
         parent.subject === null
           ? null

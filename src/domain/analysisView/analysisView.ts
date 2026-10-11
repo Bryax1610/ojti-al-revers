@@ -188,7 +188,6 @@ const viewResultBase = {
     "inspect_binary_layout",
     "analyze_javascript_application",
     "analyze_function",
-    "inspect_web_network_capture",
   ]),
   parent_digest: digestSchema,
   view_digest: digestSchema,
@@ -204,6 +203,7 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     ...viewResultBase,
     ...apiSurfaceFields,
     kind: z.literal("api-surface"),
+    parent_operation: z.literal("inspect_web_network_capture"),
     view: apiSurfaceViewSchema,
     artifact: z.strictObject({
       path: z.string(),
@@ -257,6 +257,8 @@ export interface AnalysisViewParent {
   readonly normalizedResult: unknown;
   readonly limitations: readonly string[];
   readonly artifact?: { readonly path: string; readonly sha256: string } | null;
+  /** Parent Evidence parameters, when the parent operation records them. */
+  readonly parameters?: unknown;
 }
 
 /** Construct a typed input failure for one selected-view constraint. */

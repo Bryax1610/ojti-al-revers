@@ -9,6 +9,7 @@ const project = (
   capture = analysisViewCaptureFixture(),
   offset = 0,
   limit = 50,
+  parameters: unknown = { sensitive_value_count: 0 },
 ) => {
   const parent = analysisViewCaptureEvidence(capture);
   return projectAnalysisView(
@@ -17,6 +18,7 @@ const project = (
       operation: parent.operation,
       normalizedResult: parent.normalized_result,
       limitations: [],
+      parameters,
     },
     { kind: "api-surface", offset, limit },
   );
@@ -175,4 +177,46 @@ it("keeps encoded segments literal and distinguishes origin and method", () => {
     exhausted: false,
   });
   expect(result.value.groups[0]?.path_template).toBe("/%31");
+});
+
+it("refuses parents whose sensitive declarations it cannot check", () => {
+  for (const parameters of [{ sensitive_value_count: 1 }, {}, null])
+    expect(
+      project(analysisViewCaptureFixture(), 0, 50, parameters),
+    ).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisUnsupportedTargetError" },
+    });
+});
+
+it("treats HAR missing-response sentinels as unknown", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 1);
+  capture.records[0]!.reported = {
+    request: { method: "GET", url: "https://api.example.test/a" },
+    response: { status: 0, content: { mimeType: " ; charset=utf-8" } },
+  };
+  const result = project(capture);
+  if (!result.ok || result.value.kind !== "api-surface")
+    throw new Error("Expected surface");
+  expect(result.value.groups[0]).toMatchObject({
+    statuses: [],
+    content_types: [],
+  });
+  expect(result.value.unknowns).not.toEqual([]);
+});
+
+it("budgets path segment expansion before grouping", () => {
+  const capture = analysisViewCaptureFixture();
+  capture.records = capture.records.slice(0, 1);
+  capture.records[0]!.reported = {
+    request: {
+      method: "GET",
+      url: `https://api.example.test${"/1".repeat(800_000)}`,
+    },
+  };
+  expect(project(capture)).toMatchObject({
+    ok: false,
+    error: { _tag: "AnalysisResourceConstraintError" },
+  });
 });

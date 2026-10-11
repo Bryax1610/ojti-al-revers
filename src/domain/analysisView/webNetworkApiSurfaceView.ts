@@ -1,10 +1,16 @@
 import { z } from "zod";
 import { uniqueSorted } from "../canonicalOrdering.js";
 import { compareUnicodeCodePoints as compare } from "../unicodeCodePointOrder.js";
-import { AnalysisUnsupportedTargetError } from "../analysisErrorCore.js";
+import {
+  AnalysisResourceConstraintError,
+  AnalysisUnsupportedTargetError,
+} from "../analysisErrorCore.js";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { err, ok, type Result } from "../result.js";
-import { webNetworkCaptureSchema } from "../webNetworkCapture.js";
+import {
+  WEB_NETWORK_CAPTURE_LIMITS,
+  webNetworkCaptureSchema,
+} from "../webNetworkCapture.js";
 import {
   analysisViewInputError,
   type AnalysisViewParent,
@@ -70,6 +76,16 @@ const responseSchema = z.object({
   }),
 });
 
+// Upper bound of serialized bytes one templated segment adds to a group.
+const TEMPLATED_SEGMENT_BYTES = 128;
+
+const pathSegmentCount = (path: string): number => {
+  let count = 0;
+  for (let index = 0; index < path.length; index += 1)
+    if (path.charCodeAt(index) === 0x2f) count += 1;
+  return count;
+};
+
 const segmentRule = (value: string): z.output<typeof ruleSchema> | null => {
   if (/^[0-9]+$/.test(value)) return "numeric";
   if (
@@ -127,9 +143,17 @@ export const projectWebNetworkApiSurfaceView = (
     return unsupported(
       `api-surface does not support capture format ${capture.format}.`,
     );
+  const declarations = z
+    .object({ sensitive_value_count: z.number().int().nonnegative() })
+    .safeParse(parent.parameters);
+  if (!declarations.success || declarations.data.sensitive_value_count > 0)
+    return unsupported(
+      "api-surface authors path templates and limitation text that cannot be checked against sensitive_values declarations, which the parent Evidence does not retain. Project a capture inspected without declarations.",
+    );
   const buckets = new Map<string, Group>();
   const excluded: Surface["excluded_records"] = [];
   let unavailableResponse = false;
+  let projectedBytes = 0;
   for (const record of capture.records) {
     const request = requestSchema.safeParse(record.reported);
     if (!request.success) {
@@ -154,6 +178,18 @@ export const projectWebNetworkApiSurfaceView = (
       excluded.push({ ordinal: record.ordinal, reason: "method-unavailable" });
       continue;
     }
+    projectedBytes +=
+      parsedUrl.pathname.length +
+      pathSegmentCount(parsedUrl.pathname) * TEMPLATED_SEGMENT_BYTES;
+    if (projectedBytes > WEB_NETWORK_CAPTURE_LIMITS.outputBytes)
+      return err(
+        new AnalysisResourceConstraintError(
+          "inspect_analysis_view",
+          "memory",
+          "Path segment expansion would exceed the capture reply budget before grouping.",
+          { output_bytes: WEB_NETWORK_CAPTURE_LIMITS.outputBytes },
+        ),
+      );
     const segments: Group["templated_segments"] = [];
     const template = parsedUrl.pathname
       .split("/")
@@ -199,10 +235,12 @@ export const projectWebNetworkApiSurfaceView = (
       response.success ? response.data.response.content : undefined,
     );
     const mime = content.success ? content.data.mimeType : undefined;
-    if (typeof status === "number") group.statuses.push(status);
+    // HAR uses status 0 and an empty mimeType for an unavailable response.
+    if (typeof status === "number" && status !== 0) group.statuses.push(status);
     else unavailableResponse = true;
-    if (typeof mime === "string")
-      group.content_types.push(mime.split(";", 1).join("").trim());
+    const essence =
+      typeof mime === "string" ? mime.split(";", 1).join("").trim() : "";
+    if (essence.length > 0) group.content_types.push(essence);
     else unavailableResponse = true;
   }
   const groups = [...buckets.values()].sort(

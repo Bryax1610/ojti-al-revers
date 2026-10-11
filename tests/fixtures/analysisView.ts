@@ -244,7 +244,7 @@ export const analysisViewCaptureEvidence = (
     { id: "fixture", name: "fixture", version: "1" },
     {
       operation: "inspect_web_network_capture",
-      parameters: {},
+      parameters: { sensitive_value_count: 0 },
       result: capture,
       confidence: "observed",
     },
