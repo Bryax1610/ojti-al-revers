@@ -211,17 +211,55 @@ const fileNameOf = (devicePath: string): string => {
 };
 
 /**
+ * Host file names REA writes pulled APKs under. Package Manager names APKs
+ * `base.apk`, `split_*.apk`, or a system module name; anything else, including
+ * dot segments, separators, and control characters, could escape or alias the
+ * package output directory when joined on the host.
+ */
+const SAFE_HOST_APK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apk$/u;
+
+/** Why a device-reported file name cannot be used as a host file name. */
+const unsafeHostFileNameReason = (fileName: string): string | undefined => {
+  if (fileName === "") return "the path has no final file name segment";
+  if (fileName === "." || fileName === "..")
+    return "the final segment is a dot segment";
+  if (fileName.includes("\\")) return "the file name contains a path separator";
+  if (
+    [...fileName].some((character) => {
+      const code = character.codePointAt(0)!;
+      return code < 0x20 || code === 0x7f;
+    })
+  )
+    return "the file name contains NUL or control characters";
+  if (!SAFE_HOST_APK_FILE_NAME.test(fileName))
+    return "the file name is not of the form [A-Za-z0-9][A-Za-z0-9._-]*.apk";
+  return undefined;
+};
+
+/** One `pm path` APK whose file name REA refuses to use on the host. */
+export interface AdbRejectedPackagePath {
+  /** Raw device path exactly as Package Manager reported it. */
+  readonly device_path: string;
+  readonly file_name: string;
+  readonly reason: string;
+}
+
+/**
  * Parse `pm path PACKAGE` lines. The base/split role is derived from the file
  * name (`base.apk`, `split_*.apk`), which is the only signal the output
- * carries; any other name reports an unknown role.
+ * carries; any other name reports an unknown role. File names that are not
+ * safe host file names are reported in `rejectedPaths` with the raw device
+ * path, never renamed.
  */
 export const parsePmPathOutput = (
   stdout: string,
 ): {
   paths: readonly AdbPackagePathEntry[];
+  rejectedPaths: readonly AdbRejectedPackagePath[];
   unparsedLines: readonly string[];
 } => {
   const paths: AdbPackagePathEntry[] = [];
+  const rejectedPaths: AdbRejectedPackagePath[] = [];
   const unparsedLines: string[] = [];
   for (const rawLine of stdout.split(/\r?\n/u)) {
     const line = rawLine.trim();
@@ -233,6 +271,15 @@ export const parsePmPathOutput = (
     }
     const devicePath = match[1]!;
     const fileName = fileNameOf(devicePath);
+    const unsafe = unsafeHostFileNameReason(fileName);
+    if (unsafe !== undefined) {
+      rejectedPaths.push({
+        device_path: devicePath,
+        file_name: fileName,
+        reason: unsafe,
+      });
+      continue;
+    }
     paths.push({
       device_path: devicePath,
       file_name: fileName,
@@ -244,5 +291,5 @@ export const parsePmPathOutput = (
             : "unknown",
     });
   }
-  return { paths, unparsedLines };
+  return { paths, rejectedPaths, unparsedLines };
 };

@@ -112,6 +112,13 @@ existing analysis families directly, for example
 - **Splits are part of the answer.** `pm path` enumerates the base APK and
   every installed split; pulls cover the whole set. System packages whose
   APKs keep other names report the `unknown` role rather than guessing.
+- **Device file names are untrusted.** A package pull writes each APK under
+  the last segment of its `pm path` device path only when that segment
+  matches `[A-Za-z0-9][A-Za-z0-9._-]*.apk`. Empty names, `.`/`..`, `\`
+  separators, NUL, and control characters fail the whole pull as
+  `unreadable_output` before any host directory is created; the error names
+  the raw device path and retains the `pm path` output. Names are never
+  rewritten.
 - **Partial results keep facts.** Failed individual pulls return successful
   artifacts with `coverage: "partial"` and per-file `failures`. Listings
   that contain unrecognized lines report them as `unparsed_lines` and mark

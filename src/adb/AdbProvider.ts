@@ -1171,6 +1171,20 @@ export class AdbProvider {
           `pm path reported an unrecognized line: ${parsed.unparsedLines[0]}`,
         ),
       );
+    const rejected = parsed.rejectedPaths[0];
+    if (rejected !== undefined)
+      return err(
+        new AnalysisProtocolError(
+          `pm path reported an APK path whose file name cannot be used on the host: ${JSON.stringify(rejected.device_path)} (${rejected.reason}); no APK was pulled`,
+          {
+            capturedOutput: {
+              stdout: paths.value.stdout,
+              stderr: paths.value.stderr,
+              truncated: false,
+            },
+          },
+        ),
+      );
     const directory = await prepareOutputDirectory(
       operation,
       input.output_directory,

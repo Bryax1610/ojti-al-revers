@@ -239,4 +239,46 @@ describe("parsePmPathOutput", () => {
       role: "unknown",
     });
   });
+
+  it.each([
+    ["a dot-dot segment", "/data/app/x/..", "..", "dot segment"],
+    ["a dot segment", "/data/app/x/.", ".", "dot segment"],
+    ["an empty final segment", "/data/app/x/", "", "no final file name"],
+    [
+      "a backslash separator",
+      "/data/app/x/..\\..\\evil.apk",
+      "..\\..\\evil.apk",
+      "path separator",
+    ],
+    ["a NUL character", "/data/app/x/base\u0000.apk", "base\u0000.apk", "NUL"],
+    [
+      "an escape character",
+      "/data/app/x/\u001b[2Jbase.apk",
+      "\u001b[2Jbase.apk",
+      "control characters",
+    ],
+    [
+      "a hidden file name",
+      "/data/app/x/.base.apk",
+      ".base.apk",
+      "not of the form",
+    ],
+    ["a non-APK name", "/data/app/x/base.so", "base.so", "not of the form"],
+  ])(
+    "rejects %s as a host file name and keeps the raw device path",
+    (_, devicePath, fileName, reason) => {
+      const { paths, rejectedPaths, unparsedLines } = parsePmPathOutput(
+        `package:/data/app/x/base.apk\npackage:${devicePath}\n`,
+      );
+      expect(unparsedLines).toEqual([]);
+      expect(paths.map((entry) => entry.file_name)).toEqual(["base.apk"]);
+      expect(rejectedPaths).toEqual([
+        {
+          device_path: devicePath,
+          file_name: fileName,
+          reason: expect.stringContaining(reason) as unknown,
+        },
+      ]);
+    },
+  );
 });
